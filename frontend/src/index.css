@@ -1,0 +1,178 @@
+/*
+  TAILWIND IMPORT — choose the correct line for your version and delete the other.
+  Tailwind v4 (Vite plugin / @tailwindcss/vite):
+    @import "tailwindcss";
+  Tailwind v3 (postcss / tailwindcss npm package):
+    @tailwind base;
+    @tailwind components;
+    @tailwind utilities;
+
+  This project ships with the v4 syntax below. If you're on v3, swap it.
+*/
+@import "tailwindcss";
+/* NOTE: Google Fonts loaded via <link> tag in index.html — see below.
+   Do NOT use @import url() for remote fonts here. Tailwind v4's Vite plugin
+   intercepts ALL @import statements and tries to resolve them as local modules,
+   which causes the "Invalid declaration" crash you see in the error overlay. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background-color: #050508;
+  color: #e8d5b0;
+  font-family: 'Share Tech Mono', monospace;
+  overflow: hidden;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: #050508; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+/* ── Scanlines overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 9998;
+}
+
+/* ── Grid background ── */
+.grid-bg {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-image:
+    linear-gradient(rgba(251,146,60,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(251,146,60,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Panels ── */
+.noir-panel {
+  background: rgba(13,13,13,0.95);
+  border: 1px solid #1a1a1a;
+  border-radius: 2px;
+  backdrop-filter: blur(4px);
+}
+
+/* ── Threat colors ── */
+.threat-1 { color: #4ade80; }
+.threat-2 { color: #facc15; }
+.threat-3 { color: #fb923c; }
+.threat-4 { color: #f87171; }
+
+/* ── Glow pulses ── */
+@keyframes glow-green {
+  0%,100% { box-shadow: 0 0 4px #4ade8044, inset 0 0 4px #4ade8011; }
+  50%      { box-shadow: 0 0 16px #4ade8088, inset 0 0 8px #4ade8022; }
+}
+@keyframes glow-yellow {
+  0%,100% { box-shadow: 0 0 4px #facc1544, inset 0 0 4px #facc1511; }
+  50%      { box-shadow: 0 0 16px #facc1588, inset 0 0 8px #facc1522; }
+}
+@keyframes glow-orange {
+  0%,100% { box-shadow: 0 0 6px #fb923c66, inset 0 0 6px #fb923c22; }
+  50%      { box-shadow: 0 0 20px #fb923caa, inset 0 0 10px #fb923c33; }
+}
+@keyframes glow-red {
+  0%,100% { box-shadow: 0 0 8px #f8717188, inset 0 0 8px #f8717133; }
+  50%      { box-shadow: 0 0 24px #f87171cc, inset 0 0 16px #f8717144; }
+}
+.glow-1 { animation: glow-green  2s ease-in-out infinite; }
+.glow-2 { animation: glow-yellow 2s ease-in-out infinite; }
+.glow-3 { animation: glow-orange 1.5s ease-in-out infinite; }
+.glow-4 { animation: glow-red    1s ease-in-out infinite; }
+
+/* ── Tab transitions ── */
+.tab-enter {
+  animation: tabIn 0.25s ease forwards;
+}
+@keyframes tabIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Ticker ── */
+@keyframes ticker-scroll {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+.ticker-track {
+  animation: ticker-scroll 30s linear infinite;
+  white-space: nowrap;
+}
+.ticker-track:hover { animation-play-state: paused; }
+
+/* ── Luffy float / animations ── */
+@keyframes luffyFloat {
+  0%,100% { transform: translateY(0);    }
+  50%      { transform: translateY(-10px); }
+}
+@keyframes luffyBounce {
+  0%   { transform: scale(0.88) translateY(14px); }
+  55%  { transform: scale(1.06) translateY(-7px); }
+  100% { transform: scale(1)    translateY(0);    }
+}
+@keyframes luffyFadeIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+@keyframes luffyBlink {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0; }
+}
+
+/* ── FIX: pulse-node moved here from ReplayTimeline's inline <style> tag.
+   Previously the <style> block was injected inside the component and React
+   would tear it down and recreate it on every render tick during replay,
+   causing a visible flash on the animated node. Defining it globally here
+   means the keyframe is registered once and never recreated. ── */
+@keyframes pulse-node {
+  0%,100% { box-shadow: 0 0 8px currentColor;  }
+  50%      { box-shadow: 0 0 20px currentColor; }
+}
+
+/* ── Fade in ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.3s ease forwards; }
+
+/* ── Corner decorations ── */
+.corner-box {
+  position: relative;
+}
+.corner-box::before,
+.corner-box::after {
+  content: '';
+  position: absolute;
+  width: 8px; height: 8px;
+  border-color: #fb923c;
+  border-style: solid;
+}
+.corner-box::before { top: 0; left: 0; border-width: 1px 0 0 1px; }
+.corner-box::after  { top: 0; right: 0; border-width: 1px 1px 0 0; }
+
+/* ── Blinking cursor ── */
+@keyframes blink {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0; }
+}
+.blink { animation: blink 1s infinite; }
+
+/* ── Number counter ── */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

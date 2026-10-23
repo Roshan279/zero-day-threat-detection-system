@@ -1,22 +1,22 @@
 """
-main.py — FastAPI application entry point.
+main.py: FastAPI application entry point.
 
 UPGRADES vs previous version:
   - Real-time watchdog: reads from log_collector.realtime_event_queue
     instead of polling every 60s. New events are scored and alerted
     within <1 second of being written to the Windows Event Log.
     60s loop kept as a health-check backup.
-  - start_realtime_watcher() called on startup — EvtSubscribe active.
-  - load_models_on_startup() called on startup — no cold-start retrain.
-  - backfill_hashes() called on startup — legacy events get integrity hashes.
-  - check_and_warn_privileges() called on startup — warns if not Admin,
+  - start_realtime_watcher() called on startup: EvtSubscribe active.
+  - load_models_on_startup() called on startup: no cold-start retrain.
+  - backfill_hashes() called on startup: legacy events get integrity hashes.
+  - check_and_warn_privileges() called on startup: warns if not Admin,
     forces DRY_RUN mode in response_executor automatically.
-  - /integrity endpoint — SHA-256 chain verification report + UI badge.
+  - /integrity endpoint: SHA-256 chain verification report + UI badge.
   - /block-entity now calls response_executor.execute_block() for real
     Windows account disable + firewall IP block.
-  - /unblock-entity endpoint added — reverses block actions.
-  - /response-audit endpoint — immutable log of all block/unblock actions.
-  - /chat updated — accepts full message history + system_override for
+  - /unblock-entity endpoint added: reverses block actions.
+  - /response-audit endpoint: immutable log of all block/unblock actions.
+  - /chat updated: accepts full message history + system_override for
     Luffy's app-control command responses.
   - /watchdog now includes watcher_active and integrity_valid fields.
   - All previous fixes retained.
@@ -24,6 +24,7 @@ UPGRADES vs previous version:
 
 import json
 import logging
+import platform
 import threading
 import time
 from datetime import datetime
@@ -34,7 +35,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from database import init_db, get_connection, prune_old_data
-from integrity import verify_chain, backfill_hashes, get_event_integrity_status
+from integrity import verify_chain, backfill_hashes, get_event_integrity_status, migrate_integrity_scheme
 from log_collector import (
     collect_logs,
     start_realtime_watcher,
@@ -66,7 +67,8 @@ app = FastAPI(title="Forensic Detective API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",   # any local dev port
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,6 +79,14 @@ init_db()
 
 # Pre-load saved ML models so first real-time event scores instantly
 load_models_on_startup()
+
+# Upgrade the hash chain to the current scheme (no-op once done)
+try:
+    resealed = migrate_integrity_scheme()
+    if resealed:
+        logger.warning("[Startup] Integrity chain re-sealed for %d events (scheme upgrade).", resealed)
+except Exception as e:
+    logger.warning("[Startup] Integrity scheme migration error (non-fatal): %s", e)
 
 # Backfill integrity hashes for any legacy events (runs once, fast)
 try:
@@ -147,6 +157,20 @@ def realtime_watchdog():
         time.sleep(0.25)
 
 
+ALERT_MAX_AGE_MINUTES = 30
+
+
+def _is_recent(timestamp: str, minutes: int = ALERT_MAX_AGE_MINUTES) -> bool:
+    """True if an event happened within the last `minutes`. Unparseable timestamps count as recent."""
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            ts = datetime.strptime((timestamp or "")[:19], fmt)
+        except ValueError:
+            continue
+        return (datetime.now() - ts).total_seconds() <= minutes * 60
+    return True
+
+
 def _score_and_alert_single(event_db_id: int):
     """Score a single new event and alert if tier >= 3."""
     try:
@@ -179,7 +203,9 @@ def _score_and_alert_single(event_db_id: int):
         conn.commit()
         conn.close()
 
-        if result["threat_tier"] >= 3:
+        # Only alert for events that just happened. Older ones (an imported backlog) are scored and
+        # stored, but they are history, not an incident in progress.
+        if result["threat_tier"] >= 3 and _is_recent(event.get("timestamp", "")):
             event["anomaly_score"] = result["anomaly_score"]
             event["threat_tier"]   = result["threat_tier"]
             with _alerts_lock:
@@ -190,7 +216,7 @@ def _score_and_alert_single(event_db_id: int):
                 watchdog_state["new_alerts"] = watchdog_state["new_alerts"][:5]
 
             logger.info(
-                "[Watchdog] REAL-TIME ALERT — event id=%d tier=%d score=%.2f",
+                "[Watchdog] REAL-TIME ALERT: event id=%d tier=%d score=%.2f",
                 event_db_id, result["threat_tier"], result["anomaly_score"],
             )
 
@@ -211,7 +237,7 @@ def _run_health_check_scan():
         max_id_before = row["max_id"] or 0
         conn.close()
 
-        collected = collect_logs(max_events=50)
+        collected = collect_logs(max_events=50, max_age_minutes=10)   # recent misses only, never old history
         if collected > 0:
             run_anomaly_detection()
 
@@ -222,7 +248,7 @@ def _run_health_check_scan():
             WHERE id > ? AND threat_tier >= 3
             ORDER BY anomaly_score DESC LIMIT 5
         """, (max_id_before,))
-        new_high = [dict(e) for e in cursor.fetchall()]
+        new_high = [dict(e) for e in cursor.fetchall() if _is_recent(e["timestamp"])]
         conn.close()
 
         with _alerts_lock:
@@ -233,10 +259,10 @@ def _run_health_check_scan():
 
         if watchdog_state["scan_count"] % 10 == 0:
             pruned = prune_old_data()
-            logger.info("[Watchdog] DB pruned — %d rows removed.", pruned)
+            logger.info("[Watchdog] DB pruned: %d rows removed.", pruned)
 
         logger.info(
-            "[Watchdog] Health-check #%d — %d events collected.",
+            "[Watchdog] Health-check #%d: %d events collected.",
             watchdog_state["scan_count"], collected,
         )
 
@@ -436,7 +462,7 @@ def run_scan():
         if elapsed < SCAN_COOLDOWN_SECS:
             remaining = int(SCAN_COOLDOWN_SECS - elapsed)
             return {
-                "message":   f"Scan cooldown — wait {remaining}s.",
+                "message":   f"Scan cooldown: wait {remaining}s.",
                 "collected": 0,
                 "cooldown":  True,
             }
@@ -627,15 +653,15 @@ RESPONSE_RULES = {
         "action": "Advisory alert sent to security analyst for review.",
         "system_action": "Increase monitoring frequency for this entity.",
         "analyst_action": "Review flagged events within 4 hours.",
-        "latency": "<30 seconds", "automation": "Alert automated — response is manual",
-        "spec_tier": "Tier 2 (60–85% confidence)",
+        "latency": "<30 seconds", "automation": "Alert automated: response is manual",
+        "spec_tier": "Tier 2 (60 to 85% confidence)",
     },
     3: {
         "tier": 3, "label": "CONDITIONAL RESPONSE", "color": "#fb923c",
         "action": "Temporary account suspension or IP block pending analyst review.",
         "system_action": "Suspend user account or block source IP for 15 minutes.",
         "analyst_action": "Confirm or override within 15 minutes. Document in SIEM.",
-        "latency": "<5 seconds", "automation": "Automated — human override available",
+        "latency": "<5 seconds", "automation": "Automated: human override available",
         "spec_tier": "Tier 3 (>85% confidence)",
     },
     4: {
@@ -644,7 +670,7 @@ RESPONSE_RULES = {
         "system_action": "Flag for emergency isolation. All lateral movement blocked.",
         "analyst_action": "IMMEDIATE: Escalate to CISO. Initiate incident response plan.",
         "latency": "Immediate", "automation": "Human authorisation required",
-        "spec_tier": "Tier 4 (Manual — human only)",
+        "spec_tier": "Tier 4 (Manual: human only)",
     },
 }
 
@@ -811,19 +837,41 @@ def get_replay_detail(event_id: int):
 
 
 def _get_windows_response_context(event_id: int) -> str:
+    if platform.system() != "Windows":
+        posix = {
+            4625: "The system logged a failed authentication attempt (PAM/sshd).",
+            4624: "The system opened a new login session and granted access.",
+            4740: "The account was locked after too many failed attempts (pam_faillock).",
+            4648: "A user ran a command as another account via sudo/su.",
+            4672: "A session was opened for root, full administrative privileges.",
+            4720: "A new local user account was created (useradd / sysadminctl).",
+            4726: "A local user account was deleted (userdel).",
+            4732: "A user was added to a group, check for sudo/wheel/admin membership.",
+            4733: "A user was removed from a group.",
+            4738: "An account's password or settings were changed.",
+            7045: "A new service/unit was installed or enabled (systemd / launchd).",
+            7040: "A service/unit was disabled, masked or removed.",
+            7034: "A service crashed or was killed unexpectedly.",
+            1102: "The system logs were cleared or truncated, this entry may be the only remaining evidence.",
+            1100: "The logging service was stopped: logs may be incomplete from this point.",
+            4698: "A cron/at/timer job was created or edited.",
+            4719: "The audit configuration was changed or the audit daemon stopped.",
+            5157: "The firewall dropped a connection.",
+        }
+        return posix.get(event_id, f"The system logged event {event_id}.")
     ctx = {
         4625: "Windows logged a failed logon and incremented the bad-password counter.",
         4624: "Windows created a new logon session and granted access.",
         4740: "Windows automatically locked the account after too many failed attempts.",
-        4648: "Windows logged an explicit credential use — credentials provided directly.",
+        4648: "Windows logged an explicit credential use, credentials provided directly.",
         4672: "Windows assigned special privileges including SeDebugPrivilege.",
         4720: "Windows created a new user account in the local SAM database.",
-        4726: "Windows deleted a user account — the account no longer exists.",
+        4726: "Windows deleted a user account: the account no longer exists.",
         7045: "Windows registered a new service in the Service Control Manager.",
         7040: "Windows updated the start type for an existing service.",
-        1102: "Windows cleared the Security event log — this entry is the only remaining evidence.",
+        1102: "Windows cleared the Security event log, this entry is the only remaining evidence.",
         4698: "Windows registered a new scheduled task in Task Scheduler.",
-        5379: "Windows Credential Manager was accessed — the credential vault was read.",
+        5379: "Windows Credential Manager was accessed: the credential vault was read.",
         4688: "Windows created a new process and assigned it a security token.",
     }
     return ctx.get(event_id, f"Windows logged Event ID {event_id} to the event log.")
@@ -831,12 +879,12 @@ def _get_windows_response_context(event_id: int) -> str:
 
 def _get_missed_control(event_id: int, tier: int) -> str:
     controls = {
-        4625: "Account lockout policy should trigger after 3–5 failures. If unconfigured, brute force is unlimited.",
-        4740: "Account lockout IS working — but the threshold may be too high.",
+        4625: "Account lockout policy should trigger after 3 to 5 failures. If unconfigured, brute force is unlimited.",
+        4740: "Account lockout IS working: but the threshold may be too high.",
         4648: "Multi-factor authentication prevents credential reuse even if the password is known.",
         4672: "Least-privilege policy should restrict who receives special privileges.",
         4720: "User account creation should require approval and SIEM monitoring.",
-        4726: "Account deletion should trigger an alert — attackers delete accounts to cover tracks.",
+        4726: "Account deletion should trigger an alert, attackers delete accounts to cover tracks.",
         7045: "Application whitelisting (AppLocker/WDAC) blocks unauthorised service installation.",
         1102: "Log forwarding to external SIEM means local log clearing doesn't destroy evidence.",
         4698: "Scheduled task creation should be restricted and monitored.",
@@ -857,14 +905,14 @@ def _get_forensic_significance(event: dict, raw: dict) -> str:
         hour = datetime.fromisoformat(ts.replace("T", " ").split(".")[0]).hour
     except Exception:
         pass
-    time_note = " ⚠️ Outside business hours — higher suspicion." if (hour >= 22 or hour <= 5) else ""
+    time_note = " Outside business hours: higher suspicion." if (hour >= 22 or hour <= 5) else ""
     base = {
-        4625: f"Failed login. Score {score}% — check for a sequence of failures.{time_note}",
-        4624: f"Successful login. Score {score}% — verify expected access.{time_note}",
-        4740: f"Account locked out — confirms repeated failed attempts occurred.{time_note}",
-        7045: f"New service. Score {score}% — malware commonly persists as a service.{time_note}",
-        1102: f"Audit log cleared. Almost always malicious — standard is to never clear logs.{time_note}",
-        4672: f"Privileged logon. Score {score}% — verify the account legitimately holds these privileges.{time_note}",
+        4625: f"Failed login. Score {score}%: check for a sequence of failures.{time_note}",
+        4624: f"Successful login. Score {score}%: verify expected access.{time_note}",
+        4740: f"Account locked out: confirms repeated failed attempts occurred.{time_note}",
+        7045: f"New service. Score {score}%: malware commonly persists as a service.{time_note}",
+        1102: f"Audit log cleared. Almost always malicious, standard is to never clear logs.{time_note}",
+        4672: f"Privileged logon. Score {score}%: verify the account legitimately holds these privileges.{time_note}",
     }
     return base.get(eid, f"Event ID {eid} scored {score}% anomaly.{time_note}")
 

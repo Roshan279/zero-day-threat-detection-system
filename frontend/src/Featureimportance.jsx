@@ -1,184 +1,146 @@
 import { useEffect, useState } from "react"
 import axios from "axios"
-import {
-  BarChart, Bar, Cell, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, RadarChart, Radar,
-  PolarGrid, PolarAngleAxis, PolarRadiusAxis
-} from "recharts"
+import { API } from "./api"
+import PxIcon from "./px/PxIcon"
+import { Btn } from "./px/ui"
+import { tierOf } from "./px/cardModel"
 
-const API = "http://localhost:8000"
-
-const TIERS = {
-  1:{color:"#4ade80",bg:"#0a1f0f",label:"LOW"},
-  2:{color:"#facc15",bg:"#1a1400",label:"MEDIUM"},
-  3:{color:"#fb923c",bg:"#1a0e00",label:"HIGH"},
-  4:{color:"#f87171",bg:"#1a0505",label:"CRITICAL"},
+// ─────────────────────────────────────────────────────────────
+// ML SCORES: why the model flagged things, feature by feature.
+// Each feature is a card; each flagged event shows what drove its score.
+// ─────────────────────────────────────────────────────────────
+const FEATURE = {
+  hour_of_day:     { color: "#0093ff", icon: "clock" },
+  event_id_mod:    { color: "#ff9a00", icon: "key" },
+  log_source:      { color: "#4bc292", icon: "scroll" },
+  event_type_risk: { color: "#fe5f55", icon: "warn" },
 }
+const fc = (f) => FEATURE[f]?.color || "#8a9a9a"
 
-const FEATURE_COLORS = {
-  "hour_of_day":"#60a5fa","event_id_mod":"#fb923c",
-  "log_source":"#4ade80","event_type_risk":"#f87171",
-}
-const CHART_STYLE={backgroundColor:"#0d0d0d",border:"1px solid #2a2a2a",borderRadius:"4px",color:"#e8d5b0",fontSize:"0.68rem",fontFamily:"'Share Tech Mono', monospace"}
-
-function AggregatePanel({ aggregate }) {
-  if (!aggregate?.length) return null
-  const cd=aggregate.map(f=>({name:f.label,value:f.avg_pct,share:f.share_pct,full:f.feature}))
-  const tick={fill:"#444",fontSize:"0.6rem"}
+function Meter({ pct, color, delay = 0 }) {
   return (
-    <div style={{background:"#080808",border:"1px solid #1a1a1a",borderRadius:"4px",padding:"16px"}}>
-      <div style={{color:"#555",fontSize:"0.6rem",letterSpacing:"0.18em",marginBottom:"12px",display:"flex",alignItems:"center",gap:"8px"}}>
-        <span style={{color:"#fb923c"}}>◈</span> AGGREGATE FEATURE INFLUENCE (across top 30 anomalies)
+    <div style={{ height: 16, background: "#1b2829", border: "3px solid var(--ink)", borderRadius: 5, overflow: "hidden" }}>
+      <div className="pz-bar" style={{ width: `${Math.max(2, Math.min(100, pct))}%`, height: "100%", background: color, boxShadow: "inset 0 -4px 0 rgba(0,0,0,.25), inset 0 2px 0 rgba(255,255,255,.25)", animationDelay: `${delay}s` }} />
+    </div>
+  )
+}
+
+function FeatureCard({ f, i, active, onClick }) {
+  const meta = FEATURE[f.feature] || {}
+  return (
+    <button
+      onClick={onClick}
+      className="pz-panel paper pz-fade-up"
+      style={{ flex: "1 1 190px", minWidth: 170, textAlign: "left", padding: 12, cursor: "pointer", animationDelay: `${i * 0.08}s`, transition: "transform .15s", outline: active ? "4px solid var(--gold)" : "none", color: "var(--ink)" }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-6px) rotate(-1deg)" }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "none" }}
+      aria-pressed={active}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <PxIcon name={meta.icon || "eye"} size={34} />
+        <div style={{ flex: 1, fontWeight: 700, fontSize: 22, lineHeight: 1 }}>{f.label}</div>
+        <div style={{ fontWeight: 700, fontSize: 31, color: meta.color }}>{f.avg_pct}%</div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"16px"}}>
-        <div>
-          <div style={{color:"#333",fontSize:"0.58rem",marginBottom:"8px"}}>Avg % contribution per feature</div>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={cd} layout="vertical">
-              <XAxis type="number" domain={[0,100]} tick={tick} tickFormatter={v=>`${v}%`}/>
-              <YAxis type="category" dataKey="name" width={110} tick={{fill:"#888",fontSize:"0.6rem",fontFamily:"'Share Tech Mono',monospace"}}/>
-              <Tooltip contentStyle={CHART_STYLE} formatter={v=>`${v}%`}/>
-              <Bar dataKey="value" radius={[0,3,3,0]}>
-                {cd.map((d,i)=><Cell key={i} fill={FEATURE_COLORS[d.full]||"#888"}/>)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div>
-          <div style={{color:"#333",fontSize:"0.58rem",marginBottom:"8px"}}>Share of total anomaly signal</div>
-          <ResponsiveContainer width="100%" height={180}>
-            <RadarChart data={cd}>
-              <PolarGrid stroke="#1a1a1a"/>
-              <PolarAngleAxis dataKey="name" tick={{fill:"#555",fontSize:"0.58rem",fontFamily:"'Share Tech Mono',monospace"}}/>
-              <PolarRadiusAxis angle={30} domain={[0,50]} tick={{fill:"#333",fontSize:"0.56rem"}}/>
-              <Radar name="Signal %" dataKey="share" stroke="#fb923c" fill="#fb923c" fillOpacity={0.2}/>
-              <Tooltip contentStyle={CHART_STYLE}/>
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
+      <div style={{ margin: "8px 0" }}><Meter pct={f.avg_pct} color={meta.color} delay={i * 0.08} /></div>
+      <div style={{ fontSize: 17, lineHeight: 1.2, color: "#3e4d4b" }}>{f.description}</div>
+    </button>
+  )
+}
+
+function EventRow({ ev, selected, onClick }) {
+  const t = tierOf(ev.tier)
+  const top = ev.features?.[0]
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", cursor: "pointer", color: "#fff",
+        padding: "6px 10px", marginBottom: 6, background: selected ? "#43595e" : "var(--panel)", fontFamily: "var(--pxfont)", fontSize: 19,
+        border: "3px solid var(--ink)", borderRadius: 8, boxShadow: selected ? `0 0 0 3px ${t.color}` : "0 3px 0 var(--ink)", transition: "transform .1s",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateX(4px)" }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "none" }}
+    >
+      <span className="pz-tag" style={{ background: t.color, minWidth: 74, textAlign: "center", color: t.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: t.name === "MEDIUM" ? "none" : undefined }}>{t.name}</span>
+      <span style={{ minWidth: 64, color: "#9fb4b2" }}>#{ev.event_id ?? "?"}</span>
+      <span style={{ flex: 1, minWidth: 0, color: "#9fb4b2", fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.timestamp}</span>
+      {top && <span style={{ color: fc(top.feature), fontWeight: 600, minWidth: 120, whiteSpace: "nowrap" }}>{top.label}</span>}
+      <span style={{ fontWeight: 700, color: t.color, minWidth: 44, textAlign: "right" }}>{ev.anomaly_score}%</span>
+    </button>
+  )
+}
+
+function Detail({ ev, onAsk }) {
+  if (!ev) {
+    return (
+      <div className="pz-panel" style={{ padding: 18, textAlign: "center" }}>
+        <PxIcon name="ml" size={46} style={{ margin: "0 auto 8px" }} />
+        <div className="pz-title" style={{ fontSize: 23 }}>Pick an event</div>
+        <div style={{ color: "#9fb4b2", fontSize: 18, marginTop: 4 }}>See which features pushed its score up.</div>
       </div>
-      <div style={{display:"flex",gap:"16px",marginTop:"10px",flexWrap:"wrap"}}>
-        {aggregate.map(f=>(
-          <div key={f.feature} style={{display:"flex",alignItems:"flex-start",gap:"6px",maxWidth:"48%"}}>
-            <div style={{width:"8px",height:"8px",borderRadius:"2px",background:FEATURE_COLORS[f.feature]||"#888",flexShrink:0,marginTop:"3px"}}/>
-            <div>
-              <div style={{color:FEATURE_COLORS[f.feature]||"#888",fontSize:"0.62rem",fontWeight:"bold"}}>{f.label} — {f.avg_pct}%</div>
-              <div style={{color:"#444",fontSize:"0.58rem",lineHeight:"1.4"}}>{f.description}</div>
+    )
+  }
+  const t = tierOf(ev.tier)
+  return (
+    <div className="pz-panel paper pz-bounce-in" style={{ padding: 14, color: "var(--ink)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ fontWeight: 700, fontSize: 44, color: t.dark, lineHeight: 1 }}>{ev.anomaly_score}%</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 22, lineHeight: 1 }}>Event #{ev.event_id ?? "?"}</div>
+          <div style={{ fontSize: 15, color: "#6b7b78" }}>DB-{ev.event_db_id} · {ev.timestamp}</div>
+        </div>
+        <span className="pz-tag" style={{ background: t.color, color: t.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: t.name === "MEDIUM" ? "none" : undefined }}>{t.name}</span>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        {ev.features?.map((f, i) => (
+          <div key={i} style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 19 }}>
+              <span style={{ color: fc(f.feature) }}>{f.label}</span><span>{f.pct.toFixed(1)}%</span>
             </div>
+            <Meter pct={f.pct} color={fc(f.feature)} delay={i * 0.06} />
+            <div style={{ fontSize: 15, color: "#4b5a58", marginTop: 2, lineHeight: 1.2 }}>{f.description}</div>
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-function EventFIRow({ ev, isSelected, onClick }) {
-  const t=TIERS[ev.tier]||TIERS[1]
-  const top=ev.features?.[0]
-  return (
-    <div onClick={onClick}
-      style={{display:"flex",alignItems:"center",gap:"10px",padding:"7px 14px",borderBottom:"1px solid #0d0d0d",
-        background:isSelected?t.bg:"transparent",borderLeft:`2px solid ${isSelected?t.color:t.color+"22"}`,
-        cursor:"pointer",transition:"all 0.15s"}}
-      onMouseEnter={e=>e.currentTarget.style.background=t.bg}
-      onMouseLeave={e=>e.currentTarget.style.background=isSelected?t.bg:"transparent"}
-    >
-      <span style={{color:t.color,fontSize:"0.58rem",minWidth:"60px",fontWeight:"bold",background:t.bg,border:`1px solid ${t.color}44`,padding:"1px 6px",borderRadius:"2px",textAlign:"center"}}>{t.label}</span>
-      <span style={{color:"#333",fontSize:"0.6rem",minWidth:"55px"}}>DB-{ev.event_db_id}</span>
-      <span style={{color:"#c8b890",fontSize:"0.68rem",minWidth:"60px"}}>#{ev.event_id||"?"}</span>
-      <span style={{color:"#444",fontSize:"0.58rem",flex:1}}>{ev.timestamp}</span>
-      {top&&<span style={{color:FEATURE_COLORS[top.feature]||"#888",fontSize:"0.6rem",minWidth:"120px"}}>↑ {top.label}</span>}
-      <div style={{display:"flex",alignItems:"center",gap:"4px",minWidth:"60px",justifyContent:"flex-end"}}>
-        <div style={{width:"36px",height:"3px",background:"#111",borderRadius:"2px",overflow:"hidden"}}>
-          <div style={{width:`${ev.anomaly_score}%`,height:"100%",background:t.color}}/>
-        </div>
-        <span style={{color:t.color,fontSize:"0.6rem"}}>{ev.anomaly_score}%</span>
-      </div>
-    </div>
-  )
-}
-
-function EventFIDetail({ ev }) {
-  if (!ev) return <div style={{color:"#1a1a1a",textAlign:"center",marginTop:"40px",fontSize:"0.72rem",lineHeight:"2"}}>Select an event<br/>to see what drove<br/>its anomaly score</div>
-  const t=TIERS[ev.tier]||TIERS[1]
-  const bd=ev.features?.map(f=>({name:f.label,value:f.pct,feature:f.feature}))||[]
-  return (
-    <div style={{fontFamily:"'Share Tech Mono', monospace"}}>
-      <div style={{marginBottom:"14px"}}>
-        <div style={{color:t.color,fontSize:"0.75rem",fontWeight:"bold",textShadow:`0 0 8px ${t.color}88`}}>Event #{ev.event_id||"?"} · DB-{ev.event_db_id}</div>
-        <div style={{color:"#333",fontSize:"0.58rem",marginTop:"2px"}}>{ev.timestamp}</div>
-        <div style={{display:"flex",alignItems:"center",gap:"8px",marginTop:"6px"}}>
-          <span style={{color:t.color,fontSize:"0.7rem",fontFamily:"'Orbitron',monospace"}}>{ev.anomaly_score}%</span>
-          <span style={{color:"#333",fontSize:"0.58rem"}}>anomaly score</span>
-        </div>
-      </div>
-      <div style={{marginBottom:"14px"}}>
-        <div style={{color:"#333",fontSize:"0.58rem",letterSpacing:"0.12em",marginBottom:"8px"}}>FEATURE CONTRIBUTIONS</div>
-        <ResponsiveContainer width="100%" height={130}>
-          <BarChart data={bd} layout="vertical">
-            <XAxis type="number" domain={[0,100]} tick={{fill:"#333",fontSize:"0.56rem"}} tickFormatter={v=>`${v}%`}/>
-            <YAxis type="category" dataKey="name" width={95} tick={{fill:"#666",fontSize:"0.56rem",fontFamily:"'Share Tech Mono',monospace"}}/>
-            <Tooltip contentStyle={CHART_STYLE} formatter={v=>`${v.toFixed(1)}%`}/>
-            <Bar dataKey="value" radius={[0,3,3,0]}>
-              {bd.map((d,i)=><Cell key={i} fill={FEATURE_COLORS[d.feature]||"#888"}/>)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      <div style={{color:"#333",fontSize:"0.58rem",letterSpacing:"0.12em",marginBottom:"8px"}}>BREAKDOWN</div>
-      {ev.features?.map((f,i)=>(
-        <div key={i} style={{marginBottom:"10px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:"2px"}}>
-            <span style={{color:FEATURE_COLORS[f.feature]||"#888",fontSize:"0.62rem",fontWeight:"bold"}}>{f.label}</span>
-            <span style={{color:FEATURE_COLORS[f.feature]||"#888",fontSize:"0.65rem",fontFamily:"'Orbitron',monospace"}}>{f.pct.toFixed(1)}%</span>
-          </div>
-          <div style={{height:"3px",background:"#111",borderRadius:"2px",overflow:"hidden",marginBottom:"3px"}}>
-            <div style={{width:`${f.pct}%`,height:"100%",background:FEATURE_COLORS[f.feature]||"#888"}}/>
-          </div>
-          <div style={{color:"#444",fontSize:"0.56rem",lineHeight:"1.4"}}>{f.description}</div>
-          <div style={{color:"#222",fontSize:"0.54rem",marginTop:"1px"}}>Raw: {f.value.toFixed(2)}</div>
-        </div>
-      ))}
+      <Btn color="blue" style={{ width: "100%" }} onClick={() => onAsk && onAsk(ev)}>Ask Luffy about this</Btn>
     </div>
   )
 }
 
 export default function FeatureImportance({ onAskLuffy }) {
-  const [data,setData]=useState(null)
-  const [loading,setLoading]=useState(true)
-  const [selected,setSelected]=useState(null)
-  useEffect(()=>{
-    axios.get(`${API}/feature-importance`)
-      .then(r=>{setData(r.data);setLoading(false)})
-      .catch(()=>setLoading(false))
-  },[])
-  if (loading) return <div style={{color:"#333",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>Computing feature importance...</div>
-  if (!data)   return <div style={{color:"#333",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>No data yet. Run a scan first.</div>
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState(null)
+  const [feature, setFeature] = useState(null)
+
+  useEffect(() => {
+    axios.get(`${API}/feature-importance`).then(r => { setData(r.data); setLoading(false) }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center" }} className="pz-title">Computing feature importance...</div>
+  if (!data) return <div style={{ padding: 40, textAlign: "center" }} className="pz-title">No data yet. Run a scan first.</div>
+
+  const events = (data.per_event || []).filter(ev => !feature || ev.features?.[0]?.feature === feature)
+
   return (
-    <div className="tab-enter" style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
-      <div style={{padding:"14px 16px",borderBottom:"1px solid #1a1a1a",flexShrink:0,overflowY:"auto",maxHeight:"340px"}}>
-        <AggregatePanel aggregate={data.aggregate}/>
+    <div style={{ height: "100%", overflowY: "auto", padding: "0 160px 24px 20px" }}>
+      <div className="pz-label" style={{ marginBottom: 6 }}>What the model looks at. Click a card to filter the events by their top driver.</div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+        {(data.aggregate || []).map((f, i) => (
+          <FeatureCard key={f.feature} f={f} i={i} active={feature === f.feature} onClick={() => setFeature(feature === f.feature ? null : f.feature)} />
+        ))}
       </div>
-      <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-        <div style={{flex:1,overflowY:"auto"}}>
-          <div style={{display:"flex",gap:"10px",padding:"5px 14px",borderBottom:"1px solid #0d0d0d",background:"rgba(5,5,8,0.98)",color:"#222",fontSize:"0.56rem",letterSpacing:"0.15em",position:"sticky",top:0,zIndex:5}}>
-            <span style={{minWidth:"60px"}}>TIER</span><span style={{minWidth:"55px"}}>DB-ID</span>
-            <span style={{minWidth:"60px"}}>EVENT ID</span><span style={{flex:1}}>TIMESTAMP</span>
-            <span style={{minWidth:"120px"}}>TOP DRIVER</span><span>SCORE</span>
-          </div>
-          {data.per_event.length===0
-            ?<div style={{color:"#222",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>No feature data. Run a scan to generate importance scores.</div>
-            :data.per_event.map(ev=>(
-              <EventFIRow key={ev.event_db_id} ev={ev}
-                isSelected={selected?.event_db_id===ev.event_db_id}
-                onClick={()=>{setSelected(ev);if(onAskLuffy)onAskLuffy(ev)}}
-              />
-            ))
-          }
+
+      <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 460px", minWidth: 0 }}>
+          <div className="pz-label" style={{ marginBottom: 6 }}>Flagged events {feature ? "(filtered)" : ""}</div>
+          {events.length === 0 && <div className="pz-panel" style={{ padding: 16 }}>No events with that top driver.</div>}
+          {events.map(ev => (
+            <EventRow key={ev.event_db_id} ev={ev} selected={selected?.event_db_id === ev.event_db_id} onClick={() => setSelected(ev)} />
+          ))}
         </div>
-        <div style={{width:"260px",minWidth:"260px",background:"#080808",borderLeft:"1px solid #1a1a1a",padding:"16px",overflowY:"auto"}}>
-          <div style={{color:"#333",fontSize:"0.58rem",letterSpacing:"0.15em",marginBottom:"10px"}}>EVENT DETAIL</div>
-          <EventFIDetail ev={selected}/>
+        <div style={{ flex: "0 0 320px", position: "sticky", top: 0 }}>
+          <Detail ev={selected} onAsk={onAskLuffy} />
         </div>
       </div>
     </div>

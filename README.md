@@ -198,13 +198,14 @@ DetectiveLuffy-main/
                                simulation view
       ReplayTimeline.jsx        - Chronological attack replay
                                view
-      LuffyOverlay.jsx            - Animated Luffy character/mood
+      LuffyOverlay.jsx            - Sidebar-docked mascot, speech bubble, commands
+      PixelLuffy.jsx / luffySprite.js - Pixel-art mascot renderer and sprite data
                                overlay
       Humanlog.js                  - Human-readable event/log
                                formatting helpers
       sanitize.js                   - Frontend-side output
                                sanitization helpers
-    public/aria/                     - Luffy mood sprite images
+    public/luffy.svg                 - favicon (pixel Luffy)
                                (idle/alert/angry/thinking/happy/goofy)
     package.json
     vite.config.js
@@ -213,21 +214,49 @@ DetectiveLuffy-main/
 4. PREREQUISITES
 ================================================================
 
-Required for the full experience (Windows):
-- Windows 10/11
+Supported operating systems: Windows 10/11, Linux (systemd/journald
+or syslog auth.log/secure), and macOS.
+
 - Python 3.10+ (3.11 recommended)
 - Node.js 18+ and npm
-- Administrator privileges (needed to read the Security event log
-  and to actually execute account/firewall block actions --
-  without it the app runs in a forced dry-run/degraded mode)
+- Elevated privileges (Administrator on Windows, root/sudo on
+  Linux/macOS) -- needed to read protected logs and to actually
+  execute account/firewall block actions. Without it the app runs
+  in a forced dry-run/degraded mode.
 - A free Groq API key (https://console.groq.com/) for the Luffy
   chat persona (optional -- the rest of the platform works
   without it, but chat/case-file endpoints will fail)
 
-For development on macOS/Linux: the FastAPI backend, database, ML
-pipeline, and frontend all run fine -- log_collector.py detects
-the missing pywin32/win32evtlog modules and disables live Windows
-log collection, so use Demo Mode (section 15) to populate data.
+Per-platform behaviour (log_collector.py / os_collectors.py /
+response_executor.py):
+
+  Windows  logs: Windows Event Log (pywin32)
+           block account: net user /active:no   block IP: netsh advfirewall
+  Linux    logs: journalctl (fallback /var/log/auth.log or /var/log/secure)
+           block account: usermod --lock        block IP: iptables / ufw
+  macOS    logs: unified log (`log show` / `log stream`)
+           block account: pwpolicy -disableuser block IP: pfctl table
+
+Linux/macOS log lines are mapped to the equivalent Windows Event IDs
+so the ML pipeline and dashboard behave identically:
+
+  4625/4624 failed/successful login   4740 lockout (pam_faillock)
+  4648 sudo/su                        4672 root session opened
+  4720/4726 user added/deleted        4738 password/account changed
+  4732/4733 group add/remove          4698 cron/at/timer job
+  7045/7040/7034 unit installed / disabled / crashed
+  1102/1100 logs cleared / logging stopped   4719 auditd changed
+  5157 kernel firewall DROP (needs an iptables -j LOG rule)
+
+Not available on Linux/macOS: 4688 process creation (needs auditd
+rules), 5379/5381 Windows credential vault events (no equivalent).
+Free-text log lines are sent to the AI with usernames and IP last
+octets redacted, same as the structured fields.
+
+Active response on macOS: add this to /etc/pf.conf and run
+`sudo pfctl -f /etc/pf.conf -e` once so the block table is enforced:
+  table <ForensicDetective_Block> persist
+  block drop in quick from <ForensicDetective_Block>
 
 ================================================================
 5. INSTALLATION
@@ -242,19 +271,17 @@ Create and activate a virtual environment:
   venv\Scripts\activate        (Windows)
   source venv/bin/activate     (macOS/Linux)
 
-Install dependencies:
-  pip install fastapi uvicorn pydantic
-  pip install scikit-learn numpy joblib
-  pip install groq python-dotenv
-  pip install reportlab
-  pip install pywin32              (Windows only -- enables live
-                                     event log collection)
+Install dependencies (pywin32 is installed automatically on
+Windows only):
+  pip install -r requirements.txt
 
-Note: there is no requirements.txt bundled with this checkout --
-the packages above are the complete set imported across
-backend/*.py. Consider running "pip freeze > requirements.txt"
-after your first successful install to pin versions for future
-setups.
+Run (use sudo on Linux/macOS, an Administrator shell on Windows,
+for live response):
+  python -m uvicorn main:app --port 8000
+
+Frontend API URL: defaults to http://<current-host>:8000. Override
+with VITE_API_URL in frontend/.env.local if the backend runs
+elsewhere.
 
 Create a .env file inside backend/ (see section 6, Configuration):
   GROQ_API_KEY=your_groq_api_key_here
@@ -520,10 +547,12 @@ ASK LUFFY -- LuffyTab (in App.jsx)
   app control (e.g., "run a scan", "go to the replay tab", "block
   this IP").
 
-The LuffyOverlay.jsx component renders an animated character
-(sprites in frontend/public/aria/) whose mood -- idle, thinking,
-alert, angry, happy, goofy -- reflects the current investigation
-state and drives visual feedback as new alerts arrive.
+The mascot is a pixel-art Luffy drawn in code (luffySprite.js holds
+the sprite grid, PixelLuffy.jsx renders it as SVG, so there are no
+image files). It is docked in the sidebar by LuffyOverlay.jsx and
+its mood -- idle, thinking, alert, angry, happy, goofy -- reflects
+the current investigation state. To restyle it, edit the palette,
+BASE rows (the reference art) or the EYES / MOUTHS / MARKS tables in luffySprite.js.
 
 ================================================================
 11. MACHINE LEARNING PIPELINE
@@ -580,7 +609,12 @@ state and drives visual feedback as new alerts arrive.
 Every event stored in the database is chained like a lightweight
 blockchain:
 
-  event_hash = SHA256(raw_data + timestamp + source + prev_hash)
+  event_hash = SHA256(evidence(raw_data) + timestamp + source + prev_hash)
+
+evidence() is the original log record only. The ML scorer later adds
+its own analysis (cluster, feature importance, scores) to the same
+raw_data JSON; those keys (integrity.ANALYSIS_KEYS) are left out of
+the hash, so scoring an event never breaks the chain.
 
 Because each hash incorporates the previous event's hash:
   - Modifying any event invalidates every hash computed after it.
@@ -596,6 +630,18 @@ record. Legacy events collected before the chain existed are
 automatically backfilled with hashes on startup
 (backfill_hashes()), and every replay-detail view shows a short
 hash fingerprint for the event.
+
+Hash scheme versions: the rules above are scheme 3 (stored in
+system_config as integrity_scheme). On startup, a database from an
+older scheme is upgraded once: duplicate rows are removed, UTC
+timestamps are converted to local time, and the chain is re-sealed.
+This is logged as a WARNING. Do not re-seal a chain that failed
+verification for an unknown reason; that would hide tampering.
+
+Deduplication has its own column (events.dedup_hash, the hash of the
+evidence) so scans never re-insert events that are already stored.
+Demo events go through the same chained insert as real events, and
+clearing them re-links the chain only if it was intact beforehand.
 
 ================================================================
 13. ACTIVE RESPONSE AND SAFETY
@@ -739,8 +785,12 @@ Cause/fix: pywin32 isn't installed, you're not on Windows, or the
 app isn't running as Administrator. Real-time collection needs
 elevated Windows Event Log access.
 
-Symptom: Chat/case-file endpoints return errors
-Cause/fix: GROQ_API_KEY is missing or invalid in backend/.env.
+Symptom: Luffy says "My AI service rejected the API key" (or the key is missing)
+Cause/fix: Put a valid GROQ_API_KEY (starts with gsk_) in backend/.env
+and restart the backend. Until then the chat still handles basic
+commands locally: run a scan, show critical, replay the attack, who
+is suspicious, explain this event, go to [tab], block [name].
+Case-file and event narratives need the key.
 
 Symptom: Block/unblock actions report dry_run: true unexpectedly
 Cause/fix: The backend detected it isn't running as Administrator
@@ -752,14 +802,24 @@ origin matches your frontend URL, and try POST /scan or POST
 /demo/inject to populate events.
 
 Symptom: /integrity reports a broken chain
-Cause/fix: Indicates the database was modified outside the app
-(or a legitimate legacy backfill gap) -- investigate before
-trusting the affected records.
+Cause/fix: The database was modified outside the app, or an older
+version damaged it (older versions broke the chain every time an
+event was scored). The scheme upgrade on startup repairs the old
+damage once; after that, a failure means real modification:
+investigate before trusting the affected records.
 
 Symptom: Repeated demo events after multiple /demo/inject calls
-Cause/fix: Shouldn't happen -- demo_mode.py dedupes by hash; if
-you see duplicates, check that forensic.db wasn't manually
-edited.
+Cause/fix: Shouldn't happen -- demo events are skipped when the same
+EventID, phase and data already exist.
+
+Symptom: The same Windows events appear many times
+Cause/fix: Older versions re-inserted events on every scan. The
+scheme upgrade removes those copies once on startup.
+
+Symptom: Alerts for events from days ago
+Cause/fix: Alerts only fire for events from the last 30 minutes, and
+the automatic 60-second scan only looks 10 minutes back. A manual
+scan can import older history, which is scored but does not alert.
 
 Symptom: Everything works but no ML scores appear
 Cause/fix: The Isolation Forest/KMeans models need a minimum

@@ -1,49 +1,52 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import axios from "axios"
-import { getHumanDescription, buildRichContext, explainPhase, formatTimestamp, PHASE_EXPLANATIONS } from "./humanlog"
+import { API } from "./api"
+import { buildRichContext, formatTimestamp, PHASE_EXPLANATIONS } from "./Humanlog"
 import { sanitizeField } from "./sanitize"
+import { PixelCard } from "./px/Card"
+import { LuffyAvatar } from "./px/PixelLuffy"
+import { Btn } from "./px/ui"
+import PxIcon from "./px/PxIcon"
+import { tierOf } from "./px/cardModel"
 
-const API = "http://localhost:8000"
-
-const TIERS = {
-  1:{label:"LOW",     color:"#4ade80",bg:"#0a1f0f"},
-  2:{label:"MEDIUM",  color:"#facc15",bg:"#1a1400"},
-  3:{label:"HIGH",    color:"#fb923c",bg:"#1a0e00"},
-  4:{label:"CRITICAL",color:"#f87171",bg:"#1a0505"},
-}
-
+// ─────────────────────────────────────────────────────────────
+// REPLAY: an incident played back as a row of cards. Cards you have not reached yet
+// are face down; each step flips the next one over while Luffy narrates.
+// ─────────────────────────────────────────────────────────────
 const PHASE_COLORS = {
-  "Phase 1: Brute Force":              "#facc15",
-  "Phase 1: Account Lockout":          "#fb923c",
-  "Phase 2: Credential Access":        "#fb923c",
-  "Phase 2: Credential Theft":         "#fb923c",
-  "Phase 3: Privilege Escalation":     "#f87171",
-  "Phase 3: Backdoor Login":           "#f87171",
-  "Phase 4: Persistence":              "#f87171",
-  "Phase 5: Data Exfiltration":        "#f87171",
-  "Phase 5: Data Exfiltration Complete":"#f87171",
+  "Phase 1: Brute Force":              "#ffc83a",
+  "Phase 1: Account Lockout":          "#ff9a00",
+  "Phase 2: Credential Access":        "#ff9a00",
+  "Phase 2: Credential Theft":         "#ff9a00",
+  "Phase 3: Privilege Escalation":     "#fe5f55",
+  "Phase 3: Backdoor Login":           "#fe5f55",
+  "Phase 4: Persistence":              "#fe5f55",
+  "Phase 5: Data Exfiltration":        "#fe5f55",
+  "Phase 5: Data Exfiltration Complete":"#fe5f55",
 }
 
 const LUFFY_PHASE_LINES = {
   "Phase 1: Brute Force":
     "Someone is guessing passwords over and over, trying to break into an account. Like trying every key on a keychain until one fits.",
   "Phase 1: Account Lockout":
-    "The account got locked after too many wrong attempts! Windows protected itself. But this means someone was REALLY trying to get in.",
+    "The account got locked after too many wrong attempts! The system protected itself. But this means someone was REALLY trying to get in.",
   "Phase 2: Credential Access":
-    "They got in! They used real login credentials — either guessed right or stole a password from somewhere.",
+    "They got in! They used real login credentials, either guessed right or stole a password from somewhere.",
   "Phase 2: Credential Theft":
-    "They read saved passwords from Windows' secure storage. Now they have real keys to the system. This is serious.",
+    "They read saved passwords from the secure storage. Now they have real keys to the system. This is serious.",
   "Phase 3: Privilege Escalation":
     "A new admin account appeared out of nowhere. The attacker upgraded themselves to full administrator. They have complete control now.",
   "Phase 3: Backdoor Login":
     "They're logging in through a backdoor they created. Even if you change passwords now, they can still get back in.",
   "Phase 4: Persistence":
-    "A suspicious service installed itself to run automatically. The attacker has set up camp — they survive reboots now.",
+    "A suspicious service installed itself to run automatically. The attacker has set up camp, they survive reboots now.",
   "Phase 5: Data Exfiltration":
-    "Files are leaving the system right now, being sent to an unknown address outside. This is the theft — they're taking everything.",
+    "Files are leaving the system right now, being sent to an unknown address outside. This is the theft, they're taking everything.",
   "Phase 5: Data Exfiltration Complete":
     "It's done. The attacker took what they came for. This is the end of the attack chain. Time to assess the damage.",
 }
+
+const SPEEDS = [[4000, "0.5x"], [2000, "1x"], [1000, "2x"], [500, "4x"]]
 
 function useInterval(callback, delay) {
   const saved = useRef(callback)
@@ -55,265 +58,96 @@ function useInterval(callback, delay) {
   }, [delay])
 }
 
-function btnStyle(color, bg) {
-  return {
-    padding:"7px 12px",borderRadius:"3px",background:bg,
-    border:`1px solid ${color}`,color,cursor:"pointer",
-    fontSize:"0.75rem",fontFamily:"'Share Tech Mono',monospace",
-    transition:"all 0.2s",
-  }
+function Section({ title, children, tone }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 14, letterSpacing: ".12em", fontWeight: 700, color: "#6b7b78", marginBottom: 3 }}>{title}</div>
+      <div style={{ border: "3px solid var(--ink)", borderRadius: 8, padding: "6px 10px", background: tone || "#fff", fontSize: 18, lineHeight: 1.25 }}>{children}</div>
+    </div>
+  )
 }
 
-// ─────────────────────────────────────────────────────────────
-// INTEGRITY BADGE — per-event hash status
-// ─────────────────────────────────────────────────────────────
-function IntegrityBadge({ integrity }) {
+// Hash status for one event
+function IntegrityTag({ integrity, hash }) {
   if (!integrity) return null
-  const valid = integrity.valid
-  if (valid === null || valid === undefined) return (
-    <span style={{color:"#444",fontSize:"0.52rem",letterSpacing:"0.05em"}}>— legacy</span>
-  )
-  const color = valid ? "#4ade80" : "#f87171"
-  const icon  = valid ? "⛓" : "⛓‍💥"
-  const label = valid ? "verified" : "MISMATCH"
-  const hash  = integrity.event_hash ? integrity.event_hash.slice(0,10)+"…" : ""
-  return (
-    <span title={hash} style={{
-      color,fontSize:"0.52rem",letterSpacing:"0.05em",
-      background:`${color}11`,border:`1px solid ${color}33`,
-      borderRadius:"2px",padding:"1px 5px",
-    }}>
-      {icon} {label}{hash ? ` · ${hash}` : ""}
-    </span>
-  )
+  const v = integrity.valid
+  const label = v === true ? "HASH VERIFIED" : v === false ? "HASH MISMATCH" : "LEGACY EVENT"
+  const color = v === true ? "var(--green-d)" : v === false ? "var(--red-d)" : "#6f8583"
+  return <span className="pz-tag" style={{ background: color }}>{label}{hash ? `  ${hash}` : ""}</span>
 }
 
-// ─────────────────────────────────────────────────────────────
-// PHASE BANNER
-// ─────────────────────────────────────────────────────────────
-function PhaseBanner({ phase }) {
-  if (!phase) return null
-  const color   = PHASE_COLORS[phase] || "#fb923c"
-  const explain = PHASE_EXPLANATIONS[phase]
-  const [showExplain, setShowExplain] = useState(false)
-  return (
-    <div style={{marginBottom:"6px"}}>
-      <div
-        style={{padding:"6px 14px",background:`${color}18`,border:`1px solid ${color}44`,borderRadius:"3px",display:"inline-flex",alignItems:"center",gap:"8px",cursor:"pointer",animation:"luffyFadeIn 0.3s ease"}}
-        onClick={() => setShowExplain(s => !s)}
-      >
-        <div style={{width:"6px",height:"6px",borderRadius:"50%",background:color,boxShadow:`0 0 8px ${color}`}}/>
-        <span style={{color,fontSize:"0.68rem",letterSpacing:"0.1em",fontFamily:"'Share Tech Mono',monospace"}}>{sanitizeField(phase)}</span>
-        <span style={{color:color+"88",fontSize:"0.56rem"}}>{showExplain?"▲":"▼ what's this?"}</span>
-      </div>
-      {showExplain && explain && (
-        <div style={{marginTop:"4px",padding:"8px 12px",background:`${color}11`,border:`1px solid ${color}33`,borderRadius:"4px",color:"#c8b890",fontSize:"0.68rem",lineHeight:"1.6",animation:"luffyFadeIn 0.2s ease"}}>
-          {explain}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// FORENSIC DETAIL PANEL
-// Loaded from /replay-detail/{id} — richer than the old inline data
-// ─────────────────────────────────────────────────────────────
 function ForensicDetail({ detail, loading }) {
-  if (loading) return (
-    <div style={{color:"#333",fontSize:"0.66rem",padding:"8px 0",fontFamily:"'Share Tech Mono',monospace"}}>
-      Loading forensic detail...
+  if (loading) return <div className="pz-panel paper" style={{ padding: 12, color: "var(--ink)" }}>Loading forensic detail...</div>
+  if (!detail) return null
+  const phase = detail.raw?.phase
+  const color = PHASE_COLORS[phase] || tierOf(detail.event?.threat_tier).color
+  return (
+    <div className="pz-panel paper pz-bounce-in" style={{ padding: 12, color: "var(--ink)" }}>
+      <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+        <PxIcon name="scroll" size={22} /> FORENSIC ANALYSIS
+      </div>
+      <div style={{ marginBottom: 10 }}><IntegrityTag integrity={detail.integrity} hash={detail.event_hash_short} /></div>
+      {detail.cluster_label && <Section title="BEHAVIOUR CLUSTER">{sanitizeField(detail.cluster_label)}</Section>}
+      <Section title="WHAT THE SYSTEM DID">{detail.windows_response}</Section>
+      <Section title="SECURITY CONTROL GAP" tone={color + "33"}>{detail.missed_control}</Section>
+      <Section title="FORENSIC SIGNIFICANCE">{detail.significance}</Section>
     </div>
   )
-  if (!detail) return null
+}
 
-  const t     = TIERS[detail.event?.threat_tier] || TIERS[1]
-  const color = PHASE_COLORS[detail.raw?.phase] || t.color
-
+// A step in the track: face down until reached
+function Step({ event, index, revealed, current, onClick }) {
+  const f = event
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:"10px",fontFamily:"'Share Tech Mono',monospace"}}>
-      {/* Integrity */}
-      <div style={{background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:"3px",padding:"7px 10px"}}>
-        <div style={{color:"#333",fontSize:"0.54rem",letterSpacing:"0.1em",marginBottom:"4px"}}>CHAIN OF CUSTODY</div>
-        <IntegrityBadge integrity={detail.integrity}/>
-        {detail.event_hash_short && (
-          <div style={{color:"#222",fontSize:"0.52rem",marginTop:"4px"}}>SHA-256: {detail.event_hash_short}</div>
-        )}
-      </div>
-
-      {/* Cluster */}
-      {detail.cluster_label && (
-        <div style={{background:"#0d0d1a",border:"1px solid #3a3a6a",borderRadius:"3px",padding:"7px 10px"}}>
-          <div style={{color:"#333",fontSize:"0.54rem",letterSpacing:"0.1em",marginBottom:"3px"}}>BEHAVIOUR CLUSTER</div>
-          <div style={{color:"#8888cc",fontSize:"0.66rem"}}>◈ {sanitizeField(detail.cluster_label)}</div>
+    <div
+      onClick={onClick}
+      style={{ position: "relative", flex: "0 0 auto", width: 92, height: 138, cursor: "pointer", marginRight: 10, transform: current ? "translateY(-14px) scale(1.06)" : "none", transition: "transform .25s cubic-bezier(.3,1.6,.5,1)" }}
+      role="button"
+      aria-label={`Step ${index + 1}${revealed ? "" : ", hidden"}`}
+    >
+      {revealed ? (
+        <div key={`up-${index}`} style={{ position: "absolute", inset: 0, animation: "pz-flip .4s ease backwards" }}>
+          <PixelCard event={f} width={92} interactive={false} selected={current} style={{ animation: "none", "--lift": "0px" }} />
+        </div>
+      ) : (
+        <div className="pz-card back" style={{ "--cw": "92px", "--x": "0px", "--y": "0px", "--r": "0deg", animation: "none", cursor: "pointer" }}>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 36, color: "rgba(255,255,255,.75)", textShadow: "0 3px 0 rgba(0,0,0,.4)" }}>{index + 1}</div>
         </div>
       )}
-
-      {/* What Windows did */}
-      <div>
-        <div style={{color:"#333",fontSize:"0.54rem",letterSpacing:"0.1em",marginBottom:"5px"}}>WHAT WINDOWS DID</div>
-        <div style={{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:"4px",padding:"8px 10px",color:"#c8b890",fontSize:"0.64rem",lineHeight:"1.6"}}>
-          {detail.windows_response}
-        </div>
-      </div>
-
-      {/* Missed control */}
-      <div>
-        <div style={{color:"#333",fontSize:"0.54rem",letterSpacing:"0.1em",marginBottom:"5px"}}>SECURITY CONTROL GAP</div>
-        <div style={{background:"#1a0a0a",border:`1px solid ${color}44`,borderRadius:"4px",padding:"8px 10px",color:"#c8b890",fontSize:"0.64rem",lineHeight:"1.6"}}>
-          {detail.missed_control}
-        </div>
-      </div>
-
-      {/* Forensic significance */}
-      <div>
-        <div style={{color:"#333",fontSize:"0.54rem",letterSpacing:"0.1em",marginBottom:"5px"}}>FORENSIC SIGNIFICANCE</div>
-        <div style={{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:"4px",padding:"8px 10px",color:"#e8d5b0",fontSize:"0.64rem",lineHeight:"1.6"}}>
-          {detail.significance}
-        </div>
-      </div>
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// TIMELINE NODE
-// ─────────────────────────────────────────────────────────────
-function TimelineNode({ event, index, isCompleted, isCurrent, onClick }) {
-  const ctx        = buildRichContext(event)
-  const t          = TIERS[event.threat_tier] || TIERS[1]
-  const phase      = ctx.attack_phase
-  const phaseColor = phase ? (PHASE_COLORS[phase] || t.color) : t.color
-  const ts         = formatTimestamp(ctx.timestamp)
-  const cluster    = sanitizeField(event.cluster_label || "")
-
-  return (
-    <div onClick={onClick} style={{display:"flex",gap:"0",cursor:"pointer",opacity:isCompleted||isCurrent?1:0.25,transition:"opacity 0.4s ease"}}>
-      {/* Connector */}
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:"40px",flexShrink:0}}>
-        <div style={{
-          width:"32px",height:"32px",borderRadius:"50%",
-          border:`2px solid ${isCurrent?phaseColor:(isCompleted?phaseColor:"#1a1a1a")}`,
-          background:isCurrent?`${phaseColor}22`:(isCompleted?"#0d0d0d":"#080808"),
-          display:"flex",alignItems:"center",justifyContent:"center",
-          boxShadow:isCurrent?`0 0 16px ${phaseColor}88`:"none",
-          transition:"all 0.4s ease",flexShrink:0,
-          animation:isCurrent?"pulse-node 1.5s ease-in-out infinite":"none",
-        }}>
-          {isCompleted && !isCurrent
-            ? <span style={{color:phaseColor,fontSize:"0.7rem"}}>✓</span>
-            : <span style={{color:isCurrent?phaseColor:"#333",fontSize:"0.65rem",fontFamily:"'Orbitron',monospace"}}>{String(index+1).padStart(2,"0")}</span>
-          }
-        </div>
-        {index < 99 && (
-          <div style={{width:"2px",flex:1,minHeight:"24px",background:isCompleted?`${phaseColor}66`:"#1a1a1a",transition:"background 0.4s"}}/>
-        )}
-      </div>
-
-      {/* Card */}
-      <div style={{
-        flex:1,marginLeft:"10px",marginBottom:"8px",
-        background:isCurrent?`${phaseColor}11`:"#080808",
-        border:`1px solid ${isCurrent?phaseColor:(isCompleted?phaseColor+"44":"#111")}`,
-        borderRadius:"4px",padding:"10px 12px",transition:"all 0.4s",
-        boxShadow:isCurrent?`0 0 20px ${phaseColor}33`:"none",
-      }}>
-        {phase && <PhaseBanner phase={phase}/>}
-
-        {/* Plain-English description */}
-        <div style={{color:isCurrent?"#e8d5b0":"#888",fontSize:"0.72rem",lineHeight:"1.6",marginBottom:"6px",transition:"color 0.4s"}}>
-          {ctx.plain_english}
-        </div>
-
-        {/* Metadata row */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"4px"}}>
-          <div style={{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{background:t.bg,border:`1px solid ${t.color}44`,color:t.color,fontSize:"0.56rem",padding:"1px 7px",borderRadius:"2px"}}>{t.label}</span>
-            {/* Cluster badge on node */}
-            {cluster && (
-              <span style={{background:"#0d0d1a",border:"1px solid #3a3a6a44",color:"#8888cc",fontSize:"0.52rem",padding:"1px 6px",borderRadius:"2px"}}>
-                {cluster}
-              </span>
-            )}
-            <span style={{color:"#333",fontSize:"0.58rem"}}>{ts}</span>
-          </div>
-          <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
-            <span style={{color:"#333",fontSize:"0.58rem"}}>[{sanitizeField(event.source)}]</span>
-            <span style={{color:isCurrent?phaseColor:"#333",fontSize:"0.6rem"}}>Score: {Math.round(event.anomaly_score*100)}%</span>
-          </div>
-        </div>
-
-        {/* Technical details (collapsible) — only on current step */}
-        {isCurrent && ctx.key_fields && Object.keys(ctx.key_fields).length > 0 && (
-          <details style={{marginTop:"8px"}}>
-            <summary style={{color:"#333",fontSize:"0.58rem",cursor:"pointer",userSelect:"none"}}>▶ technical details</summary>
-            <div style={{marginTop:"6px",display:"flex",flexDirection:"column",gap:"3px"}}>
-              {Object.entries(ctx.key_fields).slice(0,6).map(([k,v]) => (
-                <div key={k} style={{display:"flex",gap:"8px",fontSize:"0.58rem"}}>
-                  <span style={{color:"#333",minWidth:"120px",flexShrink:0}}>{k}</span>
-                  <span style={{color:"#666",wordBreak:"break-all"}}>{String(v).slice(0,80)}</span>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// LUFFY COMMENTARY
-// ─────────────────────────────────────────────────────────────
-function LuffyCommentary({ event, isPlaying }) {
-  const [displayed, setDisplayed] = useState("")
+function Commentary({ event, isPlaying }) {
   const [text, setText] = useState("")
-
+  const [shown, setShown] = useState("")
   useEffect(() => {
     if (!event) return
-    const ctx   = buildRichContext(event)
+    const ctx = buildRichContext(event)
     const phase = ctx.attack_phase
-    const line  = phase && LUFFY_PHASE_LINES[phase]
-      ? LUFFY_PHASE_LINES[phase]
-      : `${ctx.plain_english} ${ctx.investigation_hint}`
-    setText(line)
-    setDisplayed("")
+    setText(phase && LUFFY_PHASE_LINES[phase] ? LUFFY_PHASE_LINES[phase] : `${ctx.plain_english} ${ctx.investigation_hint}`)
   }, [event])
-
   useEffect(() => {
     if (!text) return
     let i = 0
-    setDisplayed("")
-    const interval = setInterval(() => {
-      setDisplayed(text.slice(0,i+1))
-      i++
-      if (i >= text.length) clearInterval(interval)
-    }, 20)
-    return () => clearInterval(interval)
+    setShown("")
+    const id = setInterval(() => { setShown(text.slice(0, i + 1)); i++; if (i >= text.length) clearInterval(id) }, 18)
+    return () => clearInterval(id)
   }, [text])
-
   if (!event) return null
-
-  const ctx   = buildRichContext(event)
-  const t     = TIERS[event.threat_tier] || TIERS[1]
-  const phase = ctx.attack_phase
-  const color = phase ? (PHASE_COLORS[phase]||t.color) : t.color
-
+  const t = tierOf(event.threat_tier)
+  const mood = event.threat_tier >= 4 ? "angry" : event.threat_tier >= 3 ? "alert" : event.threat_tier >= 2 ? "thinking" : "idle"
   return (
-    <div style={{background:"#080808",border:`1.5px solid ${color}`,borderRadius:"8px",padding:"14px 16px",boxShadow:`0 0 24px ${color}33`,animation:"luffyFadeIn 0.3s ease",fontFamily:"'Share Tech Mono',monospace"}}>
-      <div style={{color,fontSize:"0.58rem",letterSpacing:"0.18em",marginBottom:"6px",fontWeight:"bold"}}>
-        LUFFY // {isPlaying?"LIVE ANALYSIS":"PAUSED"}
-      </div>
-      <div style={{color:"#e8d5b0",fontSize:"0.75rem",lineHeight:"1.7"}}>
-        {displayed}<span style={{color,animation:"luffyBlink 0.6s infinite"}}>▌</span>
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+      <LuffyAvatar mood={mood} size={56} color={t.color} />
+      <div className="pz-tip no-arrow" style={{ flex: 1, padding: "8px 12px" }}>
+        <span className="pz-tag" style={{ background: t.color, color: t.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: t.name === "MEDIUM" ? "none" : undefined }}>LUFFY {isPlaying ? "LIVE" : "PAUSED"}</span>
+        <div style={{ fontSize: 19, lineHeight: 1.2, marginTop: 4, minHeight: 54 }}>{shown}</div>
       </div>
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────────────────────
 export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
   const [allEvents,     setAllEvents]     = useState([])
   const [replayEvents,  setReplayEvents]  = useState([])
@@ -322,11 +156,9 @@ export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
   const [speed,         setSpeed]         = useState(2000)
   const [mode,          setMode]          = useState("demo")
   const [loading,       setLoading]       = useState(true)
-  // Forensic detail for the current step — loaded from /replay-detail/{id}
   const [replayDetail,  setReplayDetail]  = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const nodeRefs     = useRef({})
-  const containerRef = useRef(null)
+  const track = useRef(null)
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -335,23 +167,18 @@ export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
       const evs = (res.data.events || []).slice().reverse()
       setAllEvents(evs)
       const demo = evs.filter(e => { try { return JSON.parse(e.raw_data).demo === true } catch { return false } })
-      setReplayEvents(demo.length > 0 ? demo : evs.slice(0,20))
+      setReplayEvents(demo.length > 0 ? demo : evs.slice(0, 20))
       setMode(demo.length > 0 ? "demo" : "all")
-    } catch(e) { console.error(e) }
+    } catch (e) { console.error(e) }
     setLoading(false)
   }, [])
-
   useEffect(() => { loadEvents() }, [loadEvents])
 
-  // ── Load /replay-detail when step changes ──────────────────
+  // Forensic detail for the current step
   useEffect(() => {
-    if (currentStep < 0 || !replayEvents[currentStep]) {
-      setReplayDetail(null)
-      return
-    }
+    if (currentStep < 0 || !replayEvents[currentStep]) { setReplayDetail(null); return }
     const event = replayEvents[currentStep]
     if (!event?.id) return
-
     setDetailLoading(true)
     axios.get(`${API}/replay-detail/${event.id}`)
       .then(r => setReplayDetail(r.data))
@@ -359,37 +186,37 @@ export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
       .finally(() => setDetailLoading(false))
   }, [currentStep, replayEvents])
 
-  // ── Playback interval ──────────────────────────────────────
+  // Playback. The next step is computed here, not inside a setState updater: updaters must be
+  // pure, and this also notifies the parent (Luffy's mood and line).
+  const stepRef = useRef(-1)
+  useEffect(() => { stepRef.current = currentStep }, [currentStep])
+
   useInterval(() => {
     if (!isPlaying) return
-    setCurrentStep(prev => {
-      const next = prev + 1
-      if (next >= replayEvents.length) {
-        setIsPlaying(false)
-        onLuffyState && onLuffyState("goofy")
-        onLuffyMessage && onLuffyMessage("Case replay complete! I still don't fully understand it but the evidence is all there!")
-        return prev
-      }
-      const ev = replayEvents[next]
-      if (ev) {
-        const ctx  = buildRichContext(ev)
-        const tier = ev.threat_tier
-        onLuffyState && onLuffyState(tier>=4?"angry":tier>=3?"alert":tier>=2?"thinking":"idle")
-        const phase = ctx.attack_phase
-        if (phase && LUFFY_PHASE_LINES[phase]) {
-          onLuffyMessage && onLuffyMessage(LUFFY_PHASE_LINES[phase].slice(0,140)+"...")
-        } else {
-          onLuffyMessage && onLuffyMessage(ctx.plain_english)
-        }
-      }
-      return next
-    })
+    const next = stepRef.current + 1
+    if (next >= replayEvents.length) {
+      setIsPlaying(false)
+      onLuffyState && onLuffyState("goofy")
+      onLuffyMessage && onLuffyMessage("Case replay complete! I still don't fully understand it but the evidence is all there!")
+      return
+    }
+    stepRef.current = next
+    setCurrentStep(next)
+    const ev = replayEvents[next]
+    if (ev) {
+      const ctx = buildRichContext(ev)
+      const tier = ev.threat_tier
+      onLuffyState && onLuffyState(tier >= 4 ? "angry" : tier >= 3 ? "alert" : tier >= 2 ? "thinking" : "idle")
+      const phase = ctx.attack_phase
+      onLuffyMessage && onLuffyMessage(phase && LUFFY_PHASE_LINES[phase] ? LUFFY_PHASE_LINES[phase].slice(0, 140) + "..." : ctx.plain_english)
+    }
   }, isPlaying ? speed : null)
 
-  // ── Auto-scroll ────────────────────────────────────────────
+  // Keep the current card in view
   useEffect(() => {
-    if (currentStep >= 0 && nodeRefs.current[currentStep])
-      nodeRefs.current[currentStep].scrollIntoView({ behavior:"smooth", block:"center" })
+    if (currentStep < 0 || !track.current) return
+    const el = track.current.children[currentStep]
+    if (el) track.current.scrollTo({ left: el.offsetLeft - track.current.clientWidth / 2 + 46, behavior: "smooth" })
   }, [currentStep])
 
   const handlePlay = () => {
@@ -397,142 +224,124 @@ export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
     else setIsPlaying(true)
     onLuffyState && onLuffyState("thinking")
   }
-  const handlePause   = () => setIsPlaying(false)
-  const handleReset   = () => { setCurrentStep(-1); setIsPlaying(false); onLuffyState && onLuffyState("idle") }
-  const handleSkipEnd = () => { setCurrentStep(replayEvents.length-1); setIsPlaying(false) }
+  const handlePause = () => setIsPlaying(false)
+  const handleReset = () => { setCurrentStep(-1); setIsPlaying(false); onLuffyState && onLuffyState("idle") }
+  const handleEnd   = () => { setCurrentStep(replayEvents.length - 1); setIsPlaying(false) }
 
-  const switchMode = m => {
+  const switchMode = (m) => {
     setMode(m); setCurrentStep(-1); setIsPlaying(false); setReplayDetail(null)
     if (m === "demo") {
       const demo = allEvents.filter(e => { try { return JSON.parse(e.raw_data).demo === true } catch { return false } })
-      setReplayEvents(demo.length > 0 ? demo : allEvents.slice(0,20))
+      setReplayEvents(demo.length > 0 ? demo : allEvents.slice(0, 20))
     } else {
-      setReplayEvents(allEvents.slice(0,30))
+      setReplayEvents(allEvents.slice(0, 20))
     }
   }
 
-  const currentEvent = currentStep >= 0 ? replayEvents[currentStep] : null
-  const progress     = replayEvents.length > 0 ? ((currentStep+1)/replayEvents.length)*100 : 0
+  const total = replayEvents.length
+  const current = currentStep >= 0 ? replayEvents[currentStep] : null
+  const ctx = current ? buildRichContext(current) : null
+  const phase = ctx?.attack_phase
+  const t = current ? tierOf(current.threat_tier) : null
+  const phaseColor = phase ? (PHASE_COLORS[phase] || t.color) : t?.color
 
-  if (loading) return <div style={{color:"#333",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>Loading replay data...</div>
-  if (replayEvents.length===0) return <div style={{color:"#333",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>No events to replay. Run a scan or inject a demo attack first.</div>
+  if (loading) return <div style={{ padding: 40, textAlign: "center" }} className="pz-title">Loading the case...</div>
 
   return (
-    <div className="tab-enter" style={{display:"flex",height:"100%",overflow:"hidden"}}>
-      {/* Timeline scroll area */}
-      <div ref={containerRef} style={{flex:1,overflowY:"auto",padding:"16px 16px 16px 20px",borderRight:"1px solid #1a1a1a"}}>
-        <div style={{marginBottom:"16px"}}>
-          <div style={{fontFamily:"'Orbitron',monospace",fontSize:"0.9rem",color:"#e8d5b0",marginBottom:"4px"}}>ATTACK REPLAY</div>
-          <div style={{color:"#333",fontSize:"0.6rem"}}>{replayEvents.length} events · {mode==="demo"?"Demo attack scenario":"Live system logs"} · Click any step to jump</div>
-        </div>
-
-        <div style={{display:"flex",gap:"6px",marginBottom:"14px"}}>
-          {[["demo","⚡ DEMO ATTACK"],["all","📋 ALL EVENTS"]].map(([m,lbl]) => (
-            <button key={m} onClick={() => switchMode(m)} style={{padding:"4px 12px",borderRadius:"3px",background:mode===m?"#1a0505":"transparent",border:`1px solid ${mode===m?"#f87171":"#222"}`,color:mode===m?"#f87171":"#333",cursor:"pointer",fontSize:"0.62rem",fontFamily:"'Share Tech Mono',monospace"}}>{lbl}</button>
-          ))}
-          <button onClick={loadEvents} style={{padding:"4px 10px",borderRadius:"3px",background:"transparent",border:"1px solid #222",color:"#333",cursor:"pointer",fontSize:"0.62rem",fontFamily:"'Share Tech Mono',monospace",marginLeft:"auto"}}>↻ RELOAD</button>
-        </div>
-
-        <div style={{paddingLeft:"4px"}}>
-          {replayEvents.map((ev,i) => (
-            <div key={ev.id} ref={el => nodeRefs.current[i] = el}>
-              <TimelineNode
-                event={ev} index={i}
-                isCompleted={i < currentStep}
-                isCurrent={i === currentStep}
-                onClick={() => { setCurrentStep(i); setIsPlaying(false) }}
-              />
-            </div>
-          ))}
-        </div>
+    <div style={{ height: "100%", overflowY: "auto", padding: "0 160px 24px 20px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <span className="pz-title" style={{ fontSize: 33 }}>ATTACK REPLAY</span>
+        <span className="pz-pill">{total} steps</span>
+        <div style={{ flex: 1 }} />
+        <Btn size="small" color={mode === "demo" ? "gold" : "gray"} onClick={() => switchMode("demo")}>Demo attack</Btn>
+        <Btn size="small" color={mode === "all" ? "gold" : "gray"} onClick={() => switchMode("all")}>All events</Btn>
+        <Btn size="small" color="gray" onClick={loadEvents}>Reload</Btn>
       </div>
 
-      {/* Right panel */}
-      <div style={{width:"340px",minWidth:"340px",display:"flex",flexDirection:"column",padding:"16px",gap:"14px",background:"#080808",overflowY:"auto"}}>
-        {/* Progress */}
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:"5px"}}>
-            <span style={{color:"#444",fontSize:"0.58rem",letterSpacing:"0.12em"}}>REPLAY PROGRESS</span>
-            <span style={{color:"#e8d5b0",fontSize:"0.62rem",fontFamily:"'Orbitron',monospace"}}>{Math.max(0,currentStep+1)}/{replayEvents.length}</span>
-          </div>
-          <div style={{height:"3px",background:"#111",borderRadius:"2px",overflow:"hidden"}}>
-            <div style={{height:"100%",width:`${progress}%`,background:"linear-gradient(90deg,#4ade80,#fb923c,#f87171)",transition:"width 0.4s",boxShadow:"0 0 8px #fb923c"}}/>
-          </div>
+      {total === 0 ? (
+        <div className="pz-panel" style={{ padding: 20, maxWidth: 420 }}>
+          <div className="pz-title" style={{ fontSize: 26 }}>Nothing to replay yet</div>
+          <div style={{ color: "#9fb4b2", marginTop: 4 }}>Run a scan, or inject the demo attack from Home.</div>
         </div>
+      ) : (
+        <>
+          {/* The track of cards */}
+          <div ref={track} style={{ display: "flex", overflowX: "auto", padding: "44px 10px 18px", marginBottom: 6 }} aria-label="Replay steps">
+            {replayEvents.map((ev, i) => (
+              <Step key={ev.id} event={ev} index={i} revealed={i <= currentStep} current={i === currentStep}
+                onClick={() => { setCurrentStep(i); setIsPlaying(false) }} />
+            ))}
+          </div>
 
-        {/* Controls */}
-        <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
-          <div style={{color:"#333",fontSize:"0.58rem",letterSpacing:"0.12em"}}>PLAYBACK CONTROLS</div>
-          <div style={{display:"flex",gap:"6px"}}>
-            <button onClick={handleReset} style={btnStyle("#444","#111")}>⏮</button>
+          {/* Controls */}
+          <div className="pz-panel" style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+            <Btn color="gray" onClick={handleReset}>Reset</Btn>
             {isPlaying
-              ? <button onClick={handlePause} style={{...btnStyle("#facc15","#1a1400"),flex:1}}>⏸ PAUSE</button>
-              : <button onClick={handlePlay}  style={{...btnStyle("#4ade80","#0a1f0f"),flex:1}}>▶ PLAY</button>
-            }
-            <button onClick={handleSkipEnd} style={btnStyle("#444","#111")}>⏭</button>
-          </div>
-          <div>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"4px"}}>
-              <span style={{color:"#333",fontSize:"0.58rem"}}>SPEED</span>
-              <span style={{color:"#e8d5b0",fontSize:"0.58rem"}}>{speed===500?"4x (Fast)":speed===1000?"2x":speed===2000?"1x (Normal)":"0.5x (Slow)"}</span>
-            </div>
-            <div style={{display:"flex",gap:"5px"}}>
-              {[[3000,"0.5x"],[2000,"1x"],[1000,"2x"],[500,"4x"]].map(([ms,lbl]) => (
-                <button key={ms} onClick={() => setSpeed(ms)} style={{flex:1,padding:"4px",borderRadius:"2px",background:speed===ms?"#1a1a00":"transparent",border:`1px solid ${speed===ms?"#facc15":"#222"}`,color:speed===ms?"#facc15":"#333",cursor:"pointer",fontSize:"0.6rem",fontFamily:"'Share Tech Mono',monospace"}}>{lbl}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Current event summary */}
-        {currentEvent && (
-          <div>
-            <div style={{color:"#333",fontSize:"0.58rem",letterSpacing:"0.12em",marginBottom:"8px"}}>CURRENT STEP</div>
-            <div style={{background:"#0d0d0d",border:`1px solid ${(TIERS[currentEvent.threat_tier]||TIERS[1]).color}44`,borderRadius:"4px",padding:"10px 12px",fontFamily:"'Share Tech Mono',monospace"}}>
-              <div style={{color:"#e8d5b0",fontSize:"0.72rem",lineHeight:"1.6",marginBottom:"6px"}}>
-                {getHumanDescription(currentEvent)}
+              ? <Btn color="gold" className="big" onClick={handlePause} style={{ minWidth: 130 }}>Pause</Btn>
+              : <Btn color="green" className="big" onClick={handlePlay} style={{ minWidth: 130 }}>Play</Btn>}
+            <Btn color="gray" onClick={handleEnd}>End</Btn>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 17, fontWeight: 700, marginBottom: 2 }}>
+                <span className="pz-label">Progress</span><span>{Math.max(0, currentStep + 1)}/{total}</span>
               </div>
-              <div style={{color:"#444",fontSize:"0.58rem"}}>{formatTimestamp(currentEvent.timestamp)}</div>
-            </div>
-          </div>
-        )}
-
-        {/* Forensic detail panel — replaces old plain detail block */}
-        {currentEvent && (
-          <div>
-            <div style={{color:"#333",fontSize:"0.58rem",letterSpacing:"0.12em",marginBottom:"8px"}}>FORENSIC ANALYSIS</div>
-            <ForensicDetail detail={replayDetail} loading={detailLoading}/>
-          </div>
-        )}
-
-        {/* Luffy commentary */}
-        {currentEvent && (
-          <div>
-            <div style={{color:"#333",fontSize:"0.58rem",letterSpacing:"0.12em",marginBottom:"8px"}}>LUFFY'S ANALYSIS</div>
-            <LuffyCommentary event={currentEvent} isPlaying={isPlaying}/>
-          </div>
-        )}
-
-        {/* Attack phase legend */}
-        <div style={{marginTop:"auto"}}>
-          <div style={{color:"#222",fontSize:"0.56rem",letterSpacing:"0.12em",marginBottom:"8px"}}>ATTACK PHASES</div>
-          {[
-            ["Phase 1","Reconnaissance — trying to get in","#facc15"],
-            ["Phase 2","Access — they got credentials",   "#fb923c"],
-            ["Phase 3","Escalation — full admin control", "#f87171"],
-            ["Phase 4","Persistence — surviving reboots", "#f87171"],
-            ["Phase 5","Exfiltration — stealing data",    "#f87171"],
-          ].map(([ph,label,color]) => (
-            <div key={ph} style={{display:"flex",alignItems:"flex-start",gap:"8px",marginBottom:"5px"}}>
-              <div style={{width:"5px",height:"5px",borderRadius:"50%",background:color,flexShrink:0,marginTop:"5px"}}/>
-              <div>
-                <span style={{color:"#555",fontSize:"0.58rem"}}>{ph}: </span>
-                <span style={{color:"#333",fontSize:"0.58rem"}}>{label}</span>
+              <div style={{ height: 16, background: "#1b2829", border: "3px solid var(--ink)", borderRadius: 5, overflow: "hidden" }}>
+                <div style={{ width: `${(Math.max(0, currentStep + 1) / total) * 100}%`, height: "100%", background: "var(--green)", transition: "width .4s", boxShadow: "inset 0 -4px 0 rgba(0,0,0,.25)" }} />
               </div>
             </div>
-          ))}
-        </div>
-      </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span className="pz-label">Speed</span>
+              {SPEEDS.map(([ms, l]) => <Btn key={ms} size="small" color={speed === ms ? "gold" : "gray"} onClick={() => setSpeed(ms)}>{l}</Btn>)}
+            </div>
+          </div>
+
+          {/* Current step */}
+          {current ? (
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div style={{ flex: "1 1 400px", minWidth: 0 }}>
+                <div className="pz-panel paper pz-bounce-in" key={current.id} style={{ padding: 14, color: "var(--ink)", marginBottom: 14 }}>
+                  {phase && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "3px 12px", border: "3px solid var(--ink)", borderRadius: 8, background: phaseColor, color: "#fff", fontWeight: 700, marginBottom: 8, textShadow: "0 2px 0 rgba(0,0,0,.45)" }}>
+                      <PxIcon name="warn" size={18} />{sanitizeField(phase)}
+                    </div>
+                  )}
+                  {phase && PHASE_EXPLANATIONS[phase] && <div style={{ fontSize: 18, color: "#3e4d4b", marginBottom: 8, lineHeight: 1.2 }}>{PHASE_EXPLANATIONS[phase]}</div>}
+                  <div style={{ fontSize: 23, lineHeight: 1.2, marginBottom: 10 }}>{ctx.plain_english}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <span className="pz-tag" style={{ background: t.color, color: t.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: t.name === "MEDIUM" ? "none" : undefined }}>{t.name}</span>
+                    {current.cluster_label && <span className="pz-tag" style={{ background: "var(--purple-d)" }}>{sanitizeField(current.cluster_label)}</span>}
+                    <span style={{ fontSize: 17, color: "#6b7b78" }}>{formatTimestamp(ctx.timestamp)}</span>
+                    <span style={{ fontSize: 17, color: "#6b7b78" }}>[{sanitizeField(current.source)}]</span>
+                    <span style={{ marginLeft: "auto", fontWeight: 700 }}>Score {Math.round(current.anomaly_score * 100)}%</span>
+                  </div>
+                  {ctx.key_fields && Object.keys(ctx.key_fields).length > 0 && (
+                    <details style={{ marginTop: 10 }}>
+                      <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 18 }}>Technical details</summary>
+                      <div style={{ marginTop: 6 }}>
+                        {Object.entries(ctx.key_fields).slice(0, 6).map(([k, v]) => (
+                          <div key={k} style={{ display: "flex", gap: 8, fontSize: 17 }}>
+                            <span style={{ minWidth: 120, color: "#6b7b78", fontWeight: 600 }}>{k}</span>
+                            <span style={{ wordBreak: "break-all" }}>{String(v).slice(0, 80)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+                <Commentary event={current} isPlaying={isPlaying} />
+              </div>
+              <div style={{ flex: "0 0 340px", minWidth: 280 }}>
+                <ForensicDetail detail={replayDetail} loading={detailLoading} />
+              </div>
+            </div>
+          ) : (
+            <div className="pz-panel pz-fade-up" style={{ padding: 18, maxWidth: 440 }}>
+              <div className="pz-title" style={{ fontSize: 26 }}>Press Play</div>
+              <div style={{ color: "#9fb4b2", marginTop: 4 }}>Each card flips over as the incident unfolds. Click any card to jump to that step.</div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

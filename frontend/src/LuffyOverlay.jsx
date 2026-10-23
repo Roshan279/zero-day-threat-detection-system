@@ -1,36 +1,33 @@
 import { useState, useEffect, useRef } from "react"
-
-const LUFFY_IMAGES = {
-  idle:     "/aria/idleluffy.png",
-  alert:    "/aria/alertluffy.png",
-  thinking: "/aria/thinkingluffy.png",
-  happy:    "/aria/happyluffy.png",
-  angry:    "/aria/angryluffy.png",
-  goofy:    "/aria/goofyluffy.png",
-}
+import PixelLuffy from "./px/PixelLuffy"
+import PxIcon from "./px/PxIcon"
+import { Btn } from "./px/ui"
 
 const LUFFY_LINES = {
   idle:     ["Nothing feels wrong. I trust that.","The system is calm. I'm ready either way.","Boring is good. Boring means safe.","I don't need to understand everything to protect it."],
-  alert:    ["Something moved that shouldn't have. I can tell.","Someone here is not who they say they are.","I'm not scared. But I'm paying attention now. Real attention."],
+  alert:    ["Something moved that shouldn't have. I can tell.","Someone here is not who they say they are.","I'm paying attention now. Real attention."],
   thinking: ["Hmm. Give me a second.","This is the part where I figure it out. Usually.","Something about this doesn't add up. Let me look closer."],
   happy:    ["Everything is safe! That's all that matters.","All clear! I'll take it.","SHISHISHI!! Nothing bad happening!"],
   angry:    ["SOMEONE IS ATTACKING THIS SYSTEM. I WON'T ALLOW IT.","THIS IS NOT OKAY. FIX THIS. NOW.","Nobody messes with what's mine."],
+  sleepy:   ["Zzz... I can't see the logs right now.","I can't reach the backend. Wake it up for me?"],
   goofy:    ["I solved it!! ...What did I solve exactly?","SHISHISHI! I had no plan and it still worked!","I don't know what happened but the bad stuff is gone!"],
 }
 
+// color: the tag color used on the speech bubble and the status tag
 export const MOOD_CONFIG = {
-  idle:     {color:"#4ade80",label:"MONITORING"},
-  alert:    {color:"#fb923c",label:"ON ALERT"  },
-  thinking: {color:"#facc15",label:"THINKING"  },
-  happy:    {color:"#4ade80",label:"ALL CLEAR" },
-  angry:    {color:"#f87171",label:"CRITICAL"  },
-  goofy:    {color:"#a78bfa",label:"CASE SOLVED"},
+  idle:     {color:"#4bc292",label:"MONITORING"},
+  alert:    {color:"#ff9a00",label:"ON ALERT"  },
+  thinking: {color:"#ffc83a",label:"THINKING"  },
+  happy:    {color:"#4bc292",label:"ALL CLEAR" },
+  angry:    {color:"#fe5f55",label:"CRITICAL"  },
+  goofy:    {color:"#9b6bff",label:"CASE SOLVED"},
+  sleepy:   {color:"#8a9a9a",label:"OFFLINE"   },
 }
 
 // Quick command suggestions shown above the input
 const QUICK_COMMANDS = [
   { label:"Explain this event",    cmd:"explain this event"              },
-  { label:"Show critical threats", cmd:"show critical threats"           },
+  { label:"Show critical",         cmd:"show critical threats"           },
   { label:"Who is suspicious?",    cmd:"who is the most suspicious entity?" },
   { label:"Replay the attack",     cmd:"replay the attack"               },
   { label:"Run a scan",            cmd:"run a scan"                      },
@@ -39,23 +36,25 @@ const QUICK_COMMANDS = [
 
 function useTypewriter(text, speed=22) {
   const [displayed, setDisplayed] = useState("")
-  const [done,      setDone]      = useState(false)
   useEffect(()=>{
     setDisplayed("")
-    setDone(false)
     if(!text)return
     let i=0
     const interval=setInterval(()=>{
       setDisplayed(text.slice(0,i+1))
       i++
-      if(i>=text.length){clearInterval(interval);setDone(true)}
+      if(i>=text.length){clearInterval(interval)}
     },speed)
     return()=>clearInterval(interval)
   },[text])
-  return {displayed,done}
+  return {displayed}
 }
 
-export default function LuffyOverlay({ ariaState="idle", externalMessage=null, onCommand }) {
+// ─────────────────────────────────────────────────────────────
+// LUFFY: the mascot. dock.mode "full" puts the portrait at the bottom of the left panel;
+// "avatar" shrinks him to a small badge when the window is short.
+// ─────────────────────────────────────────────────────────────
+export default function LuffyOverlay({ ariaState="idle", externalMessage=null, messageKey=0, dock={mode:"full",scale:4}, panelWidth=290, quiet=false, onCommand }) {
   const [minimized,    setMinimized]    = useState(false)
   const [currentLine,  setCurrentLine]  = useState("")
   const [showBubble,   setShowBubble]   = useState(false)
@@ -65,11 +64,10 @@ export default function LuffyOverlay({ ariaState="idle", externalMessage=null, o
   const [showHelp,     setShowHelp]     = useState(false)
   const inputRef = useRef(null)
 
-  const lastExternalRef = useRef(null)
   const ariaStateRef    = useRef(ariaState)
   useEffect(()=>{ ariaStateRef.current = ariaState },[ariaState])
 
-  const {displayed,done} = useTypewriter(currentLine,20)
+  const {displayed} = useTypewriter(currentLine,20)
 
   const cfg   = MOOD_CONFIG[ariaState] || MOOD_CONFIG.idle
   const color = cfg.color
@@ -85,16 +83,17 @@ export default function LuffyOverlay({ ariaState="idle", externalMessage=null, o
     setTimeout(()=>setBounce(false),600)
   }
 
-  // Fix: externalMessage effect with stable ariaStateRef
+  // Context messages from the app. messageKey lets the same text be shown again.
   useEffect(()=>{
     if(!externalMessage)return
-    if(externalMessage===lastExternalRef.current)return
-    lastExternalRef.current=externalMessage
     const preview=externalMessage.length>160?externalMessage.slice(0,157)+"...":externalMessage
     triggerLine(ariaStateRef.current,preview)
-  },[externalMessage])
+    const st=ariaStateRef.current
+    // Bubbles always fade so they never sit on top of page content for long
+    const h=setTimeout(()=>setShowBubble(false),(st==="angry"||st==="alert")?16000:11000)
+    return()=>clearTimeout(h)
+  },[externalMessage,messageKey])
 
-  // Fix: ariaState effect with externalMessage in deps
   useEffect(()=>{
     if(externalMessage)return
     triggerLine(ariaState)
@@ -104,7 +103,6 @@ export default function LuffyOverlay({ ariaState="idle", externalMessage=null, o
     }
   },[ariaState,externalMessage])
 
-  // Focus input when command box opens
   useEffect(()=>{
     if(showCmdBox) setTimeout(()=>inputRef.current?.focus(),50)
   },[showCmdBox])
@@ -125,185 +123,110 @@ export default function LuffyOverlay({ ariaState="idle", externalMessage=null, o
     if(e.key==="Escape"){setShowCmdBox(false);setShowHelp(false)}
   }
 
-  if(minimized) return (
-    <div onClick={()=>setMinimized(false)} title="Bring back Luffy" style={{
-      position:"fixed",bottom:"20px",right:"20px",width:"62px",height:"62px",
-      borderRadius:"50%",background:"#111",border:`2px solid ${color}`,
-      cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
-      zIndex:1000,overflow:"hidden",boxShadow:`0 0 16px ${color}44`,transition:"border-color 0.5s,box-shadow 0.5s"
-    }}>
-      <img src={LUFFY_IMAGES[ariaState]||LUFFY_IMAGES.idle} alt="Luffy" style={{width:"130%",height:"130%",objectFit:"cover",mixBlendMode:"screen"}}/>
-    </div>
-  )
+  const full = dock.mode === "full" && !minimized
+  const spriteH = 42 * (dock.scale || 3)
+  // Panels sit just above Luffy's head so they clear the cards at the bottom of the table
+  const panelBottom = 100
+  const panelLeft = panelWidth + 14
+  const bubbleBottom = full ? spriteH + 100 : 92
+  const bubbleLeft = full ? 14 : 90
+  const bubbleWidth = full ? panelWidth - 28 : 300
+  const tagText = cfg.label === "THINKING" ? "#1d2527" : "#fff"
 
   return (
-    <div style={{position:"fixed",bottom:"0px",right:"24px",zIndex:1000,display:"flex",flexDirection:"column",alignItems:"flex-end",pointerEvents:"none"}}>
+    <>
+      <div style={{position:"fixed",left:`${panelLeft}px`,bottom:`${panelBottom}px`,zIndex:1000,display:"flex",flexDirection:"column",alignItems:"flex-start",gap:"10px",pointerEvents:"none"}}>
 
-      {/* ── HELP PANEL ── */}
-      {showHelp && (
-        <div style={{
-          pointerEvents:"auto",marginBottom:"6px",marginRight:"10px",
-          background:"#0d0d0d",border:`1px solid ${color}`,borderRadius:"10px",
-          padding:"14px 16px",width:"280px",animation:"luffyFadeIn 0.2s ease",
-          fontFamily:"'Share Tech Mono',monospace",boxShadow:`0 4px 20px ${color}22`
-        }}>
-          <div style={{color,fontSize:"0.58rem",letterSpacing:"0.15em",marginBottom:"10px",fontWeight:"bold"}}>WHAT I CAN DO</div>
-          {[
-            ["explain this event",        "Describe the selected log in plain English"],
-            ["show critical threats",     "Filter to only high/critical events"],
-            ["who is suspicious?",        "Show the most suspicious entity"],
-            ["replay the attack",         "Start the step-by-step attack replay"],
-            ["run a scan",                "Trigger an immediate security scan"],
-            ["block [name]",              "Flag and block a specific entity"],
-            ["go to [tab]",               "Navigate to any tab by name"],
-          ].map(([cmd,desc])=>(
-            <div key={cmd} onClick={()=>handleCommand(cmd)} style={{
-              marginBottom:"7px",cursor:"pointer",padding:"5px 8px",borderRadius:"4px",
-              background:"#111",border:"1px solid #1a1a1a",transition:"border-color 0.15s"
-            }}
-              onMouseEnter={e=>e.currentTarget.style.borderColor=color}
-              onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}
-            >
-              <div style={{color,fontSize:"0.62rem",marginBottom:"1px"}}>"{cmd}"</div>
-              <div style={{color:"#444",fontSize:"0.56rem"}}>{desc}</div>
-            </div>
-          ))}
-          <button onClick={()=>setShowHelp(false)} style={{
-            marginTop:"8px",width:"100%",padding:"5px",background:"transparent",
-            border:`1px solid ${color}33`,borderRadius:"4px",color:"#444",
-            cursor:"pointer",fontSize:"0.6rem",fontFamily:"'Share Tech Mono',monospace"
-          }}>Close</button>
-        </div>
-      )}
-
-      {/* ── COMMAND INPUT BOX ── */}
-      {showCmdBox && (
-        <div style={{
-          pointerEvents:"auto",marginBottom:"6px",marginRight:"10px",
-          background:"#0d0d0d",border:`1.5px solid ${color}`,borderRadius:"10px",
-          padding:"12px 14px",width:"320px",animation:"luffyFadeIn 0.2s ease",
-          fontFamily:"'Share Tech Mono',monospace",boxShadow:`0 4px 20px ${color}33`
-        }}>
-          <div style={{color,fontSize:"0.58rem",letterSpacing:"0.15em",marginBottom:"8px"}}>TELL LUFFY WHAT TO DO</div>
-
-          {/* Quick command buttons */}
-          <div style={{display:"flex",flexWrap:"wrap",gap:"5px",marginBottom:"10px"}}>
-            {QUICK_COMMANDS.map(({label,cmd})=>(
-              <button key={cmd} onClick={()=>handleCommand(cmd)} style={{
-                padding:"3px 9px",borderRadius:"20px",background:"#111",
-                border:`1px solid ${color}44`,color:"#888",cursor:"pointer",
-                fontSize:"0.56rem",fontFamily:"'Share Tech Mono',monospace",
-                transition:"all 0.15s"
-              }}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.color=color}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=color+"44";e.currentTarget.style.color="#888"}}
-              >{label}</button>
+        {showHelp && (
+          <div className="pz-panel pz-bounce-in" style={{pointerEvents:"auto",padding:14,width:290}}>
+            <div className="pz-title" style={{fontSize:23,marginBottom:8}}>WHAT I CAN DO</div>
+            {[
+              ["explain this event",    "Describe the focused card in plain English"],
+              ["show critical threats", "Filter to high and critical cards"],
+              ["who is suspicious?",    "Open the most suspicious entity"],
+              ["replay the attack",     "Play the incident back step by step"],
+              ["run a scan",            "Scan the logs right now"],
+              ["block [name]",          "Block an account or IP"],
+              ["go to [page]",          "Jump to any page by name"],
+            ].map(([cmd,desc])=>(
+              <button key={cmd} onClick={()=>handleCommand(cmd)} className="pz-inset" style={{display:"block",width:"100%",textAlign:"left",padding:"4px 8px",marginBottom:6,cursor:"pointer",color:"#fff",fontFamily:"var(--pxfont)"}}>
+                <div style={{color:"var(--gold)",fontWeight:700,fontSize:19}}>{cmd}</div>
+                <div style={{color:"#9fb4b2",fontSize:17}}>{desc}</div>
+              </button>
             ))}
+            <Btn color="gray" size="small" style={{width:"100%",marginTop:4}} onClick={()=>setShowHelp(false)}>Close</Btn>
           </div>
+        )}
 
-          {/* Text input */}
-          <div style={{display:"flex",gap:"6px"}}>
-            <input
-              ref={inputRef}
-              value={cmdInput}
-              onChange={e=>setCmdInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="or type your own command..."
-              style={{
-                flex:1,background:"#080808",border:`1px solid ${color}44`,
-                borderRadius:"4px",padding:"7px 10px",color:"#e8d5b0",
-                fontSize:"0.68rem",fontFamily:"'Share Tech Mono',monospace",
-                outline:"none"
-              }}
-            />
-            <button onClick={()=>handleCommand(cmdInput)} style={{
-              padding:"7px 12px",borderRadius:"4px",background:color+"18",
-              border:`1px solid ${color}`,color,cursor:"pointer",
-              fontSize:"0.68rem",fontFamily:"'Share Tech Mono',monospace"
-            }}>▶</button>
-          </div>
-
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:"8px"}}>
-            <button onClick={()=>setShowHelp(true)} style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:"0.58rem",fontFamily:"'Share Tech Mono',monospace"}}>
-              📋 see all commands
-            </button>
-            <button onClick={()=>setShowCmdBox(false)} style={{background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:"0.58rem",fontFamily:"'Share Tech Mono',monospace"}}>
-              close ✕
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── SPEECH BUBBLE ── */}
-      {showBubble && currentLine && (
-        <div style={{
-          pointerEvents:"auto",maxWidth:"300px",marginBottom:"6px",marginRight:"30px",
-          position:"relative",animation:"luffyFadeIn 0.3s ease"
-        }}>
-          <div style={{
-            background:"#0d0d0d",border:`1.5px solid ${color}`,borderRadius:"14px",
-            padding:"12px 34px 12px 14px",fontSize:"0.74rem",lineHeight:"1.65",
-            color:"#e8d5b0",fontFamily:"'Share Tech Mono',monospace",
-            boxShadow:`0 4px 24px ${color}22`
-          }}>
-            <div style={{color,fontSize:"0.58rem",letterSpacing:"0.18em",marginBottom:"5px",fontWeight:"bold"}}>
-              LUFFY // {cfg.label}
+        {showCmdBox && (
+          <div className="pz-panel pz-bounce-in" style={{pointerEvents:"auto",padding:14,width:340}}>
+            <div className="pz-title" style={{fontSize:23,marginBottom:8}}>TELL LUFFY WHAT TO DO</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+              {QUICK_COMMANDS.map(({label,cmd})=>(
+                <Btn key={cmd} size="small" color="gray" onClick={()=>handleCommand(cmd)}>{label}</Btn>
+              ))}
             </div>
-            {displayed}
-            {!done&&<span style={{color,animation:"luffyBlink 0.6s infinite"}}>▌</span>}
-            <button onClick={()=>setShowBubble(false)} style={{position:"absolute",top:"8px",right:"10px",background:"transparent",border:"none",color:"#333",cursor:"pointer",fontSize:"0.75rem"}}>✕</button>
+            <div style={{display:"flex",gap:8}}>
+              <input
+                ref={inputRef}
+                value={cmdInput}
+                onChange={e=>setCmdInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="or type your own command..."
+                aria-label="Command for Luffy"
+                className="pz-inset"
+                style={{flex:1,padding:"6px 10px",color:"#fff",fontFamily:"var(--pxfont)",fontSize:19,outline:"none",minWidth:0}}
+              />
+              <Btn color="blue" size="small" onClick={()=>handleCommand(cmdInput)}>Send</Btn>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:10}}>
+              <Btn size="small" color="gray" onClick={()=>setShowHelp(true)}>All commands</Btn>
+              <Btn size="small" color="red" onClick={()=>setShowCmdBox(false)}>Close</Btn>
+            </div>
           </div>
-          {/* Tail */}
-          <div style={{position:"absolute",bottom:"-9px",right:"50px",width:0,height:0,borderLeft:"9px solid transparent",borderRight:"9px solid transparent",borderTop:`9px solid ${color}`}}/>
+        )}
+
+      </div>
+
+      {showBubble && currentLine && !quiet && (
+        <div style={{position:"fixed",left:bubbleLeft,bottom:bubbleBottom,width:bubbleWidth,zIndex:1001}}>
+          <div className="pz-tip pz-bounce-in no-arrow" style={{pointerEvents:"auto",padding:"10px 36px 10px 14px"}}>
+            <span className="pz-tag" style={{background:color,color:tagText,textShadow:cfg.label==="THINKING"?"none":undefined,marginBottom:4}}>{cfg.label}</span>
+            <div style={{fontSize:20,lineHeight:1.2,fontWeight:500,minHeight:38}}>{displayed}</div>
+            <button onClick={()=>setShowBubble(false)} aria-label="Close speech bubble" style={{position:"absolute",top:6,right:8,background:"none",border:0,cursor:"pointer",fontWeight:700,fontSize:20,color:"#4b5a58"}}>X</button>
+            <span style={{position:"absolute",left:full?56:14,bottom:-15,width:0,height:0,borderLeft:"9px solid transparent",borderRight:"9px solid transparent",borderTop:"12px solid var(--ink)"}}/>
+          </div>
         </div>
       )}
 
-      {/* ── LUFFY IMAGE + CONTROLS ── */}
-      <div style={{pointerEvents:"auto",position:"relative",display:"flex",flexDirection:"column",alignItems:"center"}}>
-        {/* Minimize */}
-        <button onClick={()=>setMinimized(true)} title="Minimize" style={{position:"absolute",top:"14px",right:"4px",background:"#111",border:"1px solid #2a2a2a",color:"#444",width:"22px",height:"22px",borderRadius:"50%",cursor:"pointer",fontSize:"0.65rem",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10}}>−</button>
-
-        {/* Speak */}
-        <button onClick={()=>triggerLine(ariaState)} title="Make Luffy speak" style={{position:"absolute",top:"14px",left:"4px",background:"#111",border:`1px solid ${color}44`,color,width:"22px",height:"22px",borderRadius:"50%",cursor:"pointer",fontSize:"0.65rem",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10}}>💬</button>
-
-        {/* Command button — the main new feature */}
+      {full ? (
+        <div style={{position:"fixed",left:0,bottom:0,width:`${panelWidth}px`,zIndex:1000,display:"flex",flexDirection:"column",alignItems:"center",pointerEvents:"none",paddingBottom:12}}>
+          <div style={{pointerEvents:"auto",position:"relative",display:"flex",flexDirection:"column",alignItems:"center",width:"100%"}}>
+            <div style={{position:"absolute",top:0,left:12,display:"flex",flexDirection:"column",gap:6,zIndex:10}}>
+              <button className="pz-btn gray small" style={{padding:"3px 6px"}} title="Make Luffy speak" aria-label="Make Luffy speak" onClick={()=>triggerLine(ariaState)}><PxIcon name="star" size={16}/></button>
+              <button className="pz-btn gray small" style={{padding:"3px 6px"}} title="Give Luffy a command" aria-label="Give Luffy a command" onClick={()=>{setShowCmdBox(c=>!c);setShowHelp(false)}}><PxIcon name="chat" size={16}/></button>
+            </div>
+            <button className="pz-btn gray small" style={{position:"absolute",top:0,right:12,padding:"3px 8px",zIndex:10}} title="Minimize" aria-label="Minimize Luffy" onClick={()=>setMinimized(true)}>-</button>
+            <div
+              onClick={()=>triggerLine(ariaState)}
+              style={{cursor:"pointer",userSelect:"none",marginTop:20,animation:bounce?"luffyBounce 0.5s ease":"none"}}
+            >
+              <PixelLuffy mood={ariaState} scale={dock.scale || 3}/>
+            </div>
+            <span className="pz-tag" style={{background:color,color:tagText,textShadow:cfg.label==="THINKING"?"none":undefined,marginTop:8,fontSize:17,padding:"2px 12px"}}>{cfg.label}</span>
+          </div>
+        </div>
+      ) : (
         <button
-          onClick={()=>{setShowCmdBox(c=>!c);setShowHelp(false)}}
-          title="Give Luffy a command"
-          style={{
-            position:"absolute",top:"40px",left:"4px",
-            background:showCmdBox?color+"33":"#111",
-            border:`1px solid ${color}`,color,
-            width:"22px",height:"22px",borderRadius:"50%",
-            cursor:"pointer",fontSize:"0.65rem",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            zIndex:10,transition:"all 0.2s",
-            boxShadow:showCmdBox?`0 0 10px ${color}66`:"none"
-          }}
-        >⌘</button>
-
-        <img
-          src={LUFFY_IMAGES[ariaState]||LUFFY_IMAGES.idle}
-          alt="Detective Luffy"
-          style={{
-            height:"280px",width:"auto",mixBlendMode:"screen",
-            filter:`drop-shadow(0 0 18px ${color}66)`,
-            transition:"filter 0.6s ease",
-            animation:bounce?"luffyBounce 0.5s ease":"luffyFloat 3s ease-in-out infinite",
-            display:"block",userSelect:"none"
-          }}
-        />
-
-        {/* Status badge */}
-        <div style={{
-          position:"absolute",bottom:"8px",
-          background:`${color}18`,border:`1px solid ${color}44`,
-          borderRadius:"20px",padding:"2px 10px",
-          fontSize:"0.54rem",color,letterSpacing:"0.12em",
-          fontFamily:"'Share Tech Mono',monospace",
-          pointerEvents:"none"
-        }}>{cfg.label}</div>
-      </div>
-    </div>
+          onClick={()=> minimized ? setMinimized(false) : (setShowCmdBox(c=>!c),setShowHelp(false))}
+          title={minimized ? "Bring back Luffy" : "Talk to Luffy"}
+          aria-label={minimized ? "Bring back Luffy" : "Talk to Luffy"}
+          className="pz-panel"
+          style={{position:"fixed",bottom:16,left:16,width:62,height:62,zIndex:1000,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:"#1b2829",boxShadow:`0 5px 0 var(--ink), 0 0 0 3px ${color}`,padding:0,overflow:"hidden"}}
+        >
+          <PixelLuffy mood={ariaState} view="head" height={42} animate={false}/>
+        </button>
+      )}
+    </>
   )
 }

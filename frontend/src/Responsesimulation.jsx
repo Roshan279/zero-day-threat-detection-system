@@ -1,143 +1,119 @@
 import { useEffect, useState } from "react"
 import axios from "axios"
+import { API } from "./api"
+import PxIcon from "./px/PxIcon"
+import { tierOf } from "./px/cardModel"
 
-const API = "http://localhost:8000"
+// ─────────────────────────────────────────────────────────────
+// RESPONSE: what the system WOULD do at each threat level. Nothing here runs anything.
+// The four tarot-style cards are also the filter for the list below.
+// ─────────────────────────────────────────────────────────────
+const RULE_ICON = { 1: "scroll", 2: "bolt", 3: "response", 4: "skull" }
 
-const TIERS = {
-  1:{color:"#4ade80",bg:"#0a1f0f",label:"LOW"},
-  2:{color:"#facc15",bg:"#1a1400",label:"MEDIUM"},
-  3:{color:"#fb923c",bg:"#1a0e00",label:"HIGH"},
-  4:{color:"#f87171",bg:"#1a0505",label:"CRITICAL"},
-}
-
-const ACTION_ICONS = {
-  1: "📋",
-  2: "📣",
-  3: "🔒",
-  4: "🚨",
-}
-
-function RuleCard({ rule }) {
-  const t = TIERS[rule.tier] || TIERS[1]
+function RuleCard({ rule, active, count, onClick, i }) {
+  const t = tierOf(rule.tier)
+  const rows = [
+    ["Action", rule.action],
+    ["System does", rule.system_action || "Record to the forensic log only"],
+    ["Analyst must", rule.analyst_action],
+    ["Response time", rule.latency],
+    ["Automation", rule.automation],
+  ]
   return (
-    <div style={{background:"#080808",border:`1.5px solid ${t.color}44`,borderRadius:"4px",padding:"14px 16px",boxShadow:`0 0 12px ${t.color}11`}}>
-      <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"10px"}}>
-        <span style={{fontSize:"1.2rem"}}>{ACTION_ICONS[rule.tier]}</span>
-        <div>
-          <div style={{color:t.color,fontSize:"0.8rem",fontWeight:"bold",fontFamily:"'Orbitron',monospace",textShadow:`0 0 8px ${t.color}88`}}>{rule.label}</div>
-          <div style={{color:"#444",fontSize:"0.58rem"}}>{rule.spec_tier}</div>
+    <button
+      onClick={onClick}
+      className="pz-panel paper pz-fade-up"
+      style={{ flex: "1 1 230px", minWidth: 220, textAlign: "left", padding: 0, overflow: "hidden", cursor: "pointer", color: "var(--ink)", animationDelay: `${i * 0.08}s`, transition: "transform .15s", outline: active ? "4px solid var(--gold)" : "none" }}
+      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-8px) rotate(-1deg)" }}
+      onMouseLeave={e => { e.currentTarget.style.transform = "none" }}
+      aria-pressed={active}
+    >
+      <div style={{ background: t.color, color: t.name === "MEDIUM" ? "#1d2527" : "#fff", padding: "8px 12px", display: "flex", alignItems: "center", gap: 10, borderBottom: "3px solid var(--ink)" }}>
+        <PxIcon name={RULE_ICON[rule.tier] || "eye"} size={34} />
+        <div style={{ flex: 1 }}>
+          <div className="pz-title" style={{ fontSize: 22, lineHeight: 1, textShadow: t.name === "MEDIUM" ? "none" : undefined }}>{rule.label}</div>
+          <div style={{ fontSize: 15, opacity: .9 }}>{rule.spec_tier}</div>
         </div>
+        <span className="pz-tag" style={{ background: "var(--ink)" }}>{count}</span>
       </div>
-      {[["ACTION",rule.action],["SYSTEM DOES",rule.system_action||"Record to forensic log only"],["ANALYST MUST",rule.analyst_action],["RESPONSE TIME",rule.latency],["AUTOMATION",rule.automation]].map(([lbl,val])=>(
-        <div key={lbl} style={{marginBottom:"6px"}}>
-          <div style={{color:"#333",fontSize:"0.54rem",letterSpacing:"0.12em"}}>{lbl}</div>
-          <div style={{color:"#e8d5b0",fontSize:"0.66rem",lineHeight:"1.4"}}>{val}</div>
+      <div style={{ padding: "8px 12px 10px" }}>
+        {rows.map(([k, v]) => (
+          <div key={k} style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 14, letterSpacing: ".12em", fontWeight: 700, color: "#6b7b78" }}>{k.toUpperCase()}</div>
+            <div style={{ fontSize: 18, lineHeight: 1.15 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+    </button>
+  )
+}
+
+function Row({ item }) {
+  const [open, setOpen] = useState(false)
+  const t = tierOf(item.tier)
+  const r = item.response
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", cursor: "pointer", color: "#fff", fontFamily: "var(--pxfont)", fontSize: 19, padding: "6px 10px", background: "var(--panel)", border: "3px solid var(--ink)", borderRadius: 8, boxShadow: "0 3px 0 var(--ink)" }}
+        aria-expanded={open}
+      >
+        <span className="pz-tag" style={{ background: t.color, minWidth: 74, textAlign: "center", color: t.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: t.name === "MEDIUM" ? "none" : undefined }}>{t.name}</span>
+        <span style={{ minWidth: 150, color: "#9fb4b2", fontSize: 17 }}>{item.timestamp}</span>
+        <span style={{ minWidth: 56, color: "#cfe0dd" }}>#{item.event_id ?? "?"}</span>
+        <span style={{ flex: 1, minWidth: 0, color: item.phase ? "var(--red)" : "#9fb4b2", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.phase || item.source || "-"}</span>
+        <span style={{ fontWeight: 700, color: t.color, minWidth: 44 }}>{item.anomaly_score}%</span>
+        <span className="pz-tag" style={{ background: t.dark, minWidth: 130, textAlign: "center" }}>{r.label}</span>
+        <span style={{ color: "#9fb4b2", width: 14 }}>{open ? "-" : "+"}</span>
+      </button>
+      {open && (
+        <div className="pz-inset pz-bounce-in" style={{ margin: "6px 0 0 14px", padding: "10px 14px", display: "flex", gap: 20, flexWrap: "wrap" }}>
+          {[["System action", r.system_action || "Record to forensic log"], ["Analyst required", r.analyst_action], ["Response time", `${r.latency}, ${r.automation}`]].map(([k, v]) => (
+            <div key={k} style={{ flex: "1 1 200px" }}>
+              <div className="pz-label" style={{ fontSize: 14 }}>{k}</div>
+              <div style={{ fontSize: 19, lineHeight: 1.2 }}>{v}</div>
+            </div>
+          ))}
+          {item.phase && <div style={{ color: "var(--red)", fontWeight: 700 }}>Attack phase: {item.phase}</div>}
         </div>
-      ))}
+      )}
     </div>
   )
 }
 
-function ResponseRow({ item, index }) {
-  const t    = TIERS[item.tier] || TIERS[1]
-  const r    = item.response
-  const [expanded, setExpanded] = useState(false)
-  return (
-    <>
-      <div onClick={()=>setExpanded(e=>!e)} style={{display:"flex",alignItems:"center",gap:"10px",padding:"7px 14px",borderBottom:"1px solid #0d0d0d",background:item.is_demo?t.bg:(index%2===0?"#050508":"#080810"),borderLeft:`2px solid ${item.is_demo?t.color:t.color+"33"}`,cursor:"pointer",transition:"all 0.15s"}}
-        onMouseEnter={e=>e.currentTarget.style.background=t.bg}
-        onMouseLeave={e=>e.currentTarget.style.background=item.is_demo?t.bg:(index%2===0?"#050508":"#080810")}
-      >
-        <span style={{color:t.color,fontSize:"0.58rem",fontWeight:"bold",background:t.bg,border:`1px solid ${t.color}44`,padding:"1px 6px",borderRadius:"2px",minWidth:"64px",textAlign:"center"}}>{t.label}</span>
-        <span style={{color:"#333",fontSize:"0.6rem",minWidth:"125px"}}>{item.timestamp}</span>
-        <span style={{color:"#888",fontSize:"0.6rem",minWidth:"55px"}}>#{item.event_id||"?"}</span>
-        <span style={{color:item.phase?"#f87171":"#222",fontSize:"0.58rem",flex:1}}>{item.phase||item.source||"—"}</span>
-        <div style={{display:"flex",alignItems:"center",gap:"4px",minWidth:"50px"}}>
-          <div style={{width:"32px",height:"3px",background:"#111",borderRadius:"2px",overflow:"hidden"}}>
-            <div style={{width:`${item.anomaly_score}%`,height:"100%",background:t.color}}/>
-          </div>
-          <span style={{color:t.color,fontSize:"0.58rem"}}>{item.anomaly_score}%</span>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:"6px",minWidth:"190px",background:`${t.color}11`,border:`1px solid ${t.color}44`,borderRadius:"3px",padding:"3px 8px"}}>
-          <span style={{fontSize:"0.75rem"}}>{ACTION_ICONS[item.tier]}</span>
-          <span style={{color:t.color,fontSize:"0.62rem",fontWeight:"bold",fontFamily:"'Share Tech Mono',monospace"}}>{r.label}</span>
-        </div>
-        <span style={{color:"#333",fontSize:"0.6rem"}}>{expanded?"▲":"▼"}</span>
-      </div>
-      {expanded&&(
-        <div style={{padding:"10px 14px 10px 24px",borderBottom:"1px solid #111",background:t.bg,borderLeft:`2px solid ${t.color}`,animation:"luffyFadeIn 0.2s ease"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"12px",fontFamily:"'Share Tech Mono',monospace"}}>
-            {[["SYSTEM ACTION",r.system_action||"Record to forensic log"],["ANALYST REQUIRED",r.analyst_action],["RESPONSE TIME",r.latency+" · "+r.automation]].map(([lbl,val])=>(
-              <div key={lbl}>
-                <div style={{color:"#333",fontSize:"0.54rem",letterSpacing:"0.12em",marginBottom:"3px"}}>{lbl}</div>
-                <div style={{color:"#e8d5b0",fontSize:"0.66rem",lineHeight:"1.5"}}>{val}</div>
-              </div>
-            ))}
-          </div>
-          {item.phase&&<div style={{marginTop:"8px"}}><span style={{color:"#f87171",fontSize:"0.6rem"}}>Attack Phase: {item.phase}</span></div>}
-        </div>
-      )}
-    </>
-  )
-}
-
 export default function ResponseSimulation() {
-  const [data,setData]       = useState(null)
-  const [loading,setLoading] = useState(true)
-  const [filter,setFilter]   = useState(0)
-  useEffect(()=>{
-    axios.get(`${API}/response-simulation`)
-      .then(r=>{setData(r.data);setLoading(false)})
-      .catch(()=>setLoading(false))
-  },[])
-  if (loading) return <div style={{color:"#333",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>Loading response simulation...</div>
-  if (!data)   return <div style={{color:"#333",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>No data. Run a scan first.</div>
-  const filtered=filter===0?data.simulated_responses:data.simulated_responses.filter(r=>r.tier===filter)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState(0)
+
+  useEffect(() => {
+    axios.get(`${API}/response-simulation`).then(r => { setData(r.data); setLoading(false) }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center" }} className="pz-title">Loading response simulation...</div>
+  if (!data) return <div style={{ padding: 40, textAlign: "center" }} className="pz-title">No data. Run a scan first.</div>
+
+  const rules = Object.values(data.response_rules).sort((a, b) => a.tier - b.tier)
+  const list = filter === 0 ? data.simulated_responses : data.simulated_responses.filter(r => r.tier === filter)
+
   return (
-    <div className="tab-enter" style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
-      <div style={{padding:"14px 16px",borderBottom:"1px solid #1a1a1a",flexShrink:0}}>
-        <div style={{marginBottom:"10px"}}>
-          <div style={{color:"#555",fontSize:"0.6rem",letterSpacing:"0.18em",marginBottom:"4px"}}>◈ LAYER 6A — ACTIVE MITIGATION STRATEGY (per original platform spec)</div>
-          <div style={{color:"#333",fontSize:"0.62rem"}}>{data.spec_note}</div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px"}}>
-          {Object.values(data.response_rules).map(rule=><RuleCard key={rule.tier} rule={rule}/>)}
-        </div>
+    <div style={{ height: "100%", overflowY: "auto", padding: "0 160px 24px 20px" }}>
+      <div className="pz-label" style={{ marginBottom: 2 }}>Active mitigation strategy</div>
+      <div style={{ fontSize: 18, color: "#cfe0dd", marginBottom: 10 }}>{data.spec_note} Click a card to filter the list.</div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
+        {rules.map((rule, i) => (
+          <RuleCard key={rule.tier} rule={rule} i={i} active={filter === rule.tier} count={data.tier_summary[rule.tier] || 0} onClick={() => setFilter(filter === rule.tier ? 0 : rule.tier)} />
+        ))}
       </div>
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 14px",borderBottom:"1px solid #111",background:"rgba(8,8,8,0.98)",flexShrink:0}}>
-          <span style={{color:"#555",fontSize:"0.6rem",letterSpacing:"0.15em"}}>SIMULATED RESPONSES — {filtered.length} EVENTS</span>
-          <div style={{display:"flex",gap:"5px",alignItems:"center"}}>
-            <span style={{color:"#222",fontSize:"0.54rem",marginRight:"2px"}}>FILTER:</span>
-            {[[0,"ALL","#555"],[1,"LOW","#4ade80"],[2,"MEDIUM","#facc15"],[3,"HIGH","#fb923c"],[4,"CRITICAL","#f87171"]].map(([v,l,c])=>(
-              <button key={v} onClick={()=>setFilter(v)} style={{padding:"3px 8px",borderRadius:"2px",background:filter===v?`${c}18`:"transparent",border:`1px solid ${filter===v?c:"#111"}`,color:filter===v?c:"#222",cursor:"pointer",fontSize:"0.56rem",fontFamily:"'Share Tech Mono',monospace",boxShadow:filter===v?`0 0 8px ${c}44`:"none"}}>{l}</button>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:"6px"}}>
-            {[4,3,2,1].map(t=>{
-              const count=data.tier_summary[t]||0
-              if(!count)return null
-              const tc=TIERS[t].color
-              return <div key={t} style={{display:"flex",alignItems:"center",gap:"4px",background:`${tc}11`,border:`1px solid ${tc}44`,borderRadius:"3px",padding:"2px 8px"}}><span style={{color:tc,fontSize:"0.6rem",fontWeight:"bold"}}>{ACTION_ICONS[t]} {count}</span></div>
-            })}
-          </div>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:"10px",padding:"5px 14px",borderBottom:"1px solid #0d0d0d",background:"rgba(5,5,8,0.98)",color:"#222",fontSize:"0.56rem",letterSpacing:"0.15em",flexShrink:0}}>
-          <span style={{minWidth:"64px"}}>TIER</span>
-          <span style={{minWidth:"125px"}}>TIMESTAMP</span>
-          <span style={{minWidth:"55px"}}>EVENT ID</span>
-          <span style={{flex:1}}>PHASE / SOURCE</span>
-          <span style={{minWidth:"50px"}}>SCORE</span>
-          <span style={{minWidth:"190px"}}>RESPONSE ACTION</span>
-          <span style={{width:"20px"}}/>
-        </div>
-        <div style={{flex:1,overflowY:"auto"}}>
-          {filtered.length===0
-            ?<div style={{color:"#222",textAlign:"center",padding:"40px",fontSize:"0.8rem"}}>No events match this filter.</div>
-            :filtered.map((item,i)=><ResponseRow key={item.event_db_id} item={item} index={i}/>)
-          }
-        </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <span className="pz-title" style={{ fontSize: 23 }}>Simulated responses</span>
+        <span className="pz-pill">{list.length} events</span>
+        {filter !== 0 && <button className="pz-btn gray small" onClick={() => setFilter(0)}>Clear filter</button>}
       </div>
+      {list.length === 0 && <div className="pz-panel" style={{ padding: 16 }}>No events match this filter.</div>}
+      {list.map(item => <Row key={item.event_db_id} item={item} />)}
     </div>
   )
 }

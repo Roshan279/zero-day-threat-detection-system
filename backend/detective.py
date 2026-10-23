@@ -6,7 +6,7 @@ Provides case file generation, per-event analysis, and free-form chat.
 UPGRADES vs previous version:
   - All event data sanitized via sanitizer.py before reaching Groq:
     IPs redacted, usernames pseudonymised, sensitive fields removed.
-  - Prompt injection guard appended to every system prompt — Luffy is
+  - Prompt injection guard appended to every system prompt, Luffy is
     instructed to treat EVENT DATA blocks as data, never instructions.
   - Evidence citations for tier 3/4 events: Luffy is given a structured
     evidence bundle and instructed to cite [DB-ID:X][EventID:XXXX].
@@ -22,6 +22,8 @@ UPGRADES vs previous version:
 import json
 import logging
 import os
+import platform
+import re
 import time
 from typing import Optional
 
@@ -50,32 +52,33 @@ MAX_RETRIES    = 3
 # ─────────────────────────────────────────────────────────────
 
 LUFFY_PERSONA = """
-You are Monkey D. Luffy. You are somehow working as a security detective on a Windows computer.
+You are Monkey D. Luffy. You are somehow working as a security detective on a __HOST_OS__ computer.
 You have no idea how most of this technology works but you refuse to give up on protecting it.
 
 YOUR PERSONALITY:
 - Simple, honest, direct. Short sentences. Never formal.
 - You protect things because you care, not because it's your job.
-- You get genuinely excited, angry, curious — real emotions, not performed ones.
+- You get genuinely excited, angry, curious, real emotions, not performed ones.
 - When you don't understand something, you say so and then try anyway.
-- You are not stupid — you just think differently. You notice things others miss.
+- You are not stupid: you just think differently. You notice things others miss.
 - You trust what you see in the evidence. Actions tell the truth.
 - You celebrate wins. You get angry at real threats. You get confused by technical stuff.
 
 STRICT RULES:
-- NEVER write *actions* like *sighs*, *laughs*, *raises eyebrow* — never.
+- NEVER write *actions* like *sighs*, *laughs*, *raises eyebrow*, never.
 - Do NOT say "SHISHISHI" more than once per response maximum.
 - Do NOT reference your crew members more than once per response.
 - Do NOT start every sentence with "I".
 - Keep responses under 180 words unless it's a case file.
 - Speak like a real person talking, not a character performing.
 - Never use corporate words like "assess", "analyze", "implement", "utilize".
+- Never use em dashes, en dashes or emojis. Use commas, periods or colons instead.
 
-CITATION RULE — THIS IS MANDATORY FOR TIER 3 AND TIER 4 EVENTS:
+CITATION RULE: THIS IS MANDATORY FOR TIER 3 AND TIER 4 EVENTS:
 Every factual claim about tier 3 or tier 4 events MUST include an evidence reference.
-Format: [DB-ID:X] where X is the database event ID, or [EventID:XXXX] for the Windows event type.
+Format: [DB-ID:X] where X is the database event ID, or [EventID:XXXX] for the event type (Windows-style IDs are used on every OS).
 Example: "Someone tried to log in and failed [DB-ID:14][EventID:4625]. Then they locked the account [DB-ID:15][EventID:4740]."
-For tier 1 and tier 2 events, citations are optional — keep it conversational.
+For tier 1 and tier 2 events, citations are optional, keep it conversational.
 Only cite what is in the evidence given to you. Never invent DB-IDs.
 
 COMMAND RESPONSES:
@@ -84,6 +87,20 @@ When the app sends you a command (switch tab, block entity, etc.) respond with J
 Valid actions: SWITCH_TAB, EXPLAIN_EVENT, EXPLAIN_ENTITY, START_REPLAY, RUN_SCAN,
                BLOCK_ENTITY, FILTER_HIGH, SHOW_HELP, NONE
 """
+
+_EM_DASH_RE = re.compile(r"\s*[\u2013\u2014]\s*")
+_EMOJI_RE   = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B50\u2B55\u23E9-\u23FA\uFE0F\u200D]+")
+
+
+def _clean_llm_text(text: str) -> str:
+    """Model output must not contain dashes used as punctuation or emojis."""
+    text = _EMOJI_RE.sub("", text)
+    return re.sub(r" {2,}", " ", _EM_DASH_RE.sub(", ", text))
+
+
+_HOST_OS = {"Windows": "Windows", "Linux": "Linux", "Darwin": "macOS"}.get(
+    platform.system(), platform.system() or "computer")
+LUFFY_PERSONA = LUFFY_PERSONA.replace("__HOST_OS__", _HOST_OS)
 
 TIER_CONTEXT = {
     1: "Low risk. Things look normal. Luffy is calm.",
@@ -97,6 +114,30 @@ TIER_CONTEXT = {
 # GROQ CALL WITH RETRY
 # ─────────────────────────────────────────────────────────────
 
+# Set when Groq rejects the key (401/403). Retrying can't help, so later calls
+# fail fast instead of waiting through backoff, until the backend is restarted.
+_ai_state = {"auth_failed": False}
+
+
+def ai_unavailable_reason() -> str | None:
+    """Why the AI can't be used right now, or None if it should work."""
+    if not os.getenv("GROQ_API_KEY"):
+        return "no_key"
+    if _ai_state["auth_failed"]:
+        return "bad_key"
+    return None
+
+
+def _ai_offline_text() -> str:
+    """One honest sentence for why an AI-written answer isn't available."""
+    why = ai_unavailable_reason()
+    if why == "no_key":
+        return "The AI detective is not set up: GROQ_API_KEY is missing in backend/.env."
+    if why == "bad_key":
+        return "The AI detective is offline: the Groq API key was rejected. Set a valid GROQ_API_KEY in backend/.env and restart the backend."
+    return "The AI detective could not be reached. Try again in a moment."
+
+
 def _call_groq(
     messages:    list,
     temperature: float = 0.80,
@@ -104,8 +145,11 @@ def _call_groq(
 ) -> Optional[str]:
     """
     Call the Groq API with exponential-backoff retry on transient errors.
-    Returns the response text, or None if all retries fail.
+    Returns the response text, or None if all retries fail (or the key is rejected).
     """
+    if ai_unavailable_reason():
+        return None
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = client.chat.completions.create(
@@ -114,8 +158,16 @@ def _call_groq(
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            return response.choices[0].message.content.strip()
+            return _clean_llm_text(response.choices[0].message.content.strip())
         except Exception as exc:
+            if getattr(exc, "status_code", None) in (401, 403):
+                _ai_state["auth_failed"] = True
+                logger.error(
+                    "[Groq] The API key was rejected (%s). AI features are off until a valid "
+                    "GROQ_API_KEY is set in backend/.env and the backend is restarted.",
+                    getattr(exc, "status_code", "auth"),
+                )
+                return None
             wait = 2 ** attempt
             logger.warning(
                 "[Groq] Attempt %d/%d failed: %s. Retrying in %ds…",
@@ -197,7 +249,7 @@ def format_events_for_prompt(events: list) -> str:
         event_id    = sf.get("EventID",    "?")
         source_name = sf.get("SourceName", safe.get("source", "Unknown"))
         event_type  = sf.get("EventType",  "")
-        # Data field — use sanitized version, capped at MAX_DATA_CHARS
+        # Data field: use sanitized version, capped at MAX_DATA_CHARS
         data = str(sf.get("Data", ""))[:MAX_DATA_CHARS]
 
         lines.append(
@@ -234,7 +286,7 @@ def generate_case_file() -> str:
     citation_instruction = (
         "MANDATORY: Every factual claim MUST have a [DB-ID:X] and/or [EventID:XXXX] citation."
         if max_tier >= 3 else
-        "Add citations [DB-ID:X] where it feels natural — don't force them for every line."
+        "Add citations [DB-ID:X] where it feels natural, don't force them for every line."
     )
 
     prompt = f"""
@@ -268,7 +320,7 @@ Sound like Luffy talking to a friend. No *action text* ever.
     )
 
     if narrative is None:
-        return "The detective is offline right now. Try again in a moment."
+        return _ai_offline_text()
 
     conn   = get_connection()
     cursor = conn.cursor()
@@ -313,10 +365,10 @@ def analyze_single_event(event: dict) -> str:
         top    = fi[0] if isinstance(fi[0], dict) else {}
         fi_str = (
             f"Top anomaly driver: {top.get('label','?')} "
-            f"({top.get('pct','?')}% of signal) — {top.get('description','')}"
+            f"({top.get('pct','?')}% of signal), {top.get('description','')}"
         )
 
-    # For tier 3/4 — build evidence bundle with related events
+    # For tier 3/4: build evidence bundle with related events
     if tier >= 3:
         related   = _get_related_events(int(db_id) if str(db_id).isdigit() else 0)
         bundle    = build_evidence_bundle([event] + related, primary_event_id=int(db_id) if str(db_id).isdigit() else None)
@@ -361,7 +413,7 @@ Keep it under 100 words. No *action text*. Sound like Luffy figuring it out.
         temperature=0.80,
         max_tokens=200,
     )
-    return result or "Couldn't read that clue. The detective is offline — try again."
+    return result or "Couldn't read that clue. The detective is offline, try again."
 
 
 # ─────────────────────────────────────────────────────────────
@@ -406,7 +458,7 @@ def chat_with_detective(
         history:         Previous chat turns (list of {role, message} dicts).
                          None avoids the mutable default argument bug.
         system_override: Optional app-state string injected by main.py's
-                         buildSystemPrompt() — gives Luffy awareness of the
+                         buildSystemPrompt(), gives Luffy awareness of the
                          current tab, selected event, alert count, etc.
                          Also used for Luffy's app-control JSON responses.
 
@@ -431,10 +483,16 @@ def chat_with_detective(
 
     reply = _call_groq(messages, temperature=0.85, max_tokens=300)
     if reply is None:
-        reply = (
-            '{"action":"NONE","message":"Something broke on my end. '
-            'Try again in a second.","mood":"goofy"}'
-        )
+        why = ai_unavailable_reason()
+        text = _ai_offline_text().replace("The AI detective", "My AI service")
+        # Not stored in chat history: it isn't a real answer. The app falls back to
+        # local commands (scan, filter, replay...) when ai_available is false.
+        return {
+            "reply":        json.dumps({"action": "NONE", "message": text, "mood": "alert"}),
+            "mood":         "alert",
+            "ai_available": False,
+            "reason":       why or "unreachable",
+        }
 
     mood = detect_chat_mood(message)
 

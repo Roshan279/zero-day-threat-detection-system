@@ -5,14 +5,14 @@ Forensic chain-of-custody via SHA-256 chained hashing.
 HOW THE CHAIN WORKS:
   event_hash = SHA-256(raw_data + timestamp + source + prev_hash)
 
-  Each event's hash depends on the previous event's hash — exactly
+  Each event's hash depends on the previous event's hash: exactly
   like a blockchain. This means:
     - Modifying ANY event invalidates every hash after it
     - Deleting an event breaks the chain (missing link)
     - Reordering events breaks the chain (wrong prev_hash)
 
   This is stronger than simple per-event hashing, which only proves
-  an individual record wasn't modified — it cannot detect deletions
+  an individual record wasn't modified: it cannot detect deletions
   or reordering.
 
 USAGE:
@@ -26,10 +26,55 @@ USAGE:
 """
 
 import hashlib
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+# ── Evidence vs analysis ──────────────────────────────────────
+# raw_data holds the original log record, but anomaly_detector.py later adds its
+# own analysis (cluster, feature importance, scores, hashes) to the same JSON.
+# The integrity chain must only cover the ORIGINAL evidence, otherwise scoring an
+# event would break its hash. These keys are analysis output and are excluded.
+ANALYSIS_KEYS = frozenset({
+    "cluster_id", "behavior", "behavior_label", "feature_importance",
+    "if_score", "baseline_score", "raw_hash", "normalized_hash", "combined_hash",
+})
+
+# Bump when the hashing rules change; migrate_integrity_scheme() re-seals the chain once.
+INTEGRITY_SCHEME = "3"
+
+
+def evidence_string(raw_data: str) -> str:
+    """Canonical form of the original evidence in a raw_data JSON string."""
+    try:
+        obj = json.loads(raw_data)
+    except (TypeError, ValueError):
+        return raw_data or ""
+    if not isinstance(obj, dict):
+        return raw_data or ""
+    kept = {k: v for k, v in obj.items() if k not in ANALYSIS_KEYS}
+    return json.dumps(kept, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def utc_to_local(utc_text: str) -> str:
+    """
+    "2026-10-23T05:18:22.1234567Z" (UTC, as Windows XML events report it) ->
+    "2026-10-23 10:48:22" (local time, the format every collector stores).
+    Returns "" if the text can't be parsed.
+    """
+    try:
+        dt = datetime.strptime(utc_text[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return ""
+    return dt.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def dedup_hash_of(raw_data: str) -> str:
+    """Stable identity of an event's evidence, used to skip events we already stored."""
+    return hashlib.sha256(evidence_string(raw_data).encode("utf-8")).hexdigest()
 
 
 # ── Hash computation ──────────────────────────────────────────
@@ -44,7 +89,8 @@ def compute_event_hash(
     Compute the SHA-256 hash for a single event.
 
     The hash is computed over the concatenation of:
-      raw_data + | + timestamp + | + source + | + prev_hash
+      evidence(raw_data) + | + timestamp + | + source + | + prev_hash
+    where evidence() drops analysis fields added later by the scorer.
 
     The pipe separator prevents field-boundary collisions
     (e.g. raw="ab" ts="c" is distinct from raw="a" ts="bc").
@@ -59,13 +105,13 @@ def compute_event_hash(
     Returns:
         64-character lowercase hex SHA-256 digest.
     """
-    content = f"{raw_data}|{timestamp}|{source}|{prev_hash}"
+    content = f"{evidence_string(raw_data)}|{timestamp}|{source}|{prev_hash}"
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def compute_genesis_hash() -> str:
     """
-    Returns the hash for an imaginary 'block zero' — used as
+    Returns the hash for an imaginary 'block zero', used as
     prev_hash for the very first event in the database.
     Deterministic so it's always the same value.
     """
@@ -79,13 +125,13 @@ def verify_chain() -> dict:
     Walk every event in insertion order and verify the hash chain.
 
     Returns a dict with:
-      valid          bool   — True if chain is fully intact
-      total          int    — Total events checked
-      corrupted      list   — List of {id, reason} for broken links
-      first_break    int|None — DB id of first broken event
-      chain_length   int    — Number of events in the chain
-      verified_at    str    — ISO timestamp of this check
-      genesis_hash   str    — The expected hash of the first link
+      valid          bool  : True if chain is fully intact
+      total          int   : Total events checked
+      corrupted      list  : List of {id, reason} for broken links
+      first_break    int|None: DB id of first broken event
+      chain_length   int   : Number of events in the chain
+      verified_at    str   : ISO timestamp of this check
+      genesis_hash   str   : The expected hash of the first link
 
     Performance note: this does a full table scan. For large databases
     (>10k events) this will take a few seconds. The /integrity endpoint
@@ -117,7 +163,7 @@ def verify_chain() -> dict:
             "chain_length": 0,
             "verified_at":  datetime.now().isoformat(),
             "genesis_hash": compute_genesis_hash(),
-            "summary":      "No events in database — chain is empty.",
+            "summary":      "No events in database: chain is empty.",
         }
 
     # The first event's prev_hash should be the genesis hash
@@ -133,7 +179,7 @@ def verify_chain() -> dict:
         stored_prev = row["prev_hash"]  or ""
 
         # Skip events that were inserted before the integrity upgrade
-        # (they have empty hashes — mark as legacy, not corrupted)
+        # (they have empty hashes: mark as legacy, not corrupted)
         if not stored_hash:
             expected_prev = ""  # reset chain at legacy boundary
             continue
@@ -141,7 +187,7 @@ def verify_chain() -> dict:
         # Verify prev_hash linkage
         # Allow empty prev_hash for first event (pre-upgrade databases)
         if i == 0 or not stored_prev:
-            # First event or first hashed event after legacy gap —
+            # First event or first hashed event after legacy gap,
             # don't enforce prev_hash but do verify the event_hash itself
             recomputed = compute_event_hash(raw_data, timestamp, source, stored_prev)
         else:
@@ -176,10 +222,10 @@ def verify_chain() -> dict:
     valid = len(corrupted) == 0
 
     if valid:
-        summary = f"Chain intact — {total} events verified."
+        summary = f"Chain intact: {total} events verified."
     else:
         summary = (
-            f"CHAIN COMPROMISED — {len(corrupted)} broken link(s) "
+            f"CHAIN COMPROMISED: {len(corrupted)} broken link(s) "
             f"out of {total} events. First break at event id={first_break}."
         )
         logger.error("[Integrity] %s", summary)
@@ -237,7 +283,7 @@ def get_event_integrity_status(event_id: int) -> dict:
             "valid":      None,   # None = legacy (no hash, not corrupted)
             "hash":       "",
             "prev_hash":  "",
-            "reason":     "Legacy event — inserted before integrity upgrade",
+            "reason":     "Legacy event: inserted before integrity upgrade",
             "short_hash": "LEGACY",
         }
 
@@ -253,7 +299,7 @@ def get_event_integrity_status(event_id: int) -> dict:
             "valid":      False,
             "hash":       stored_hash,
             "prev_hash":  stored_prev,
-            "reason":     f"Hash mismatch — event may have been tampered with",
+            "reason":     f"Hash mismatch: event may have been tampered with",
             "short_hash": stored_hash[:12] + "…",
         }
 
@@ -263,7 +309,7 @@ def get_event_integrity_status(event_id: int) -> dict:
             "valid":      False,
             "hash":       stored_hash,
             "prev_hash":  stored_prev,
-            "reason":     "Chain break — previous event hash does not match",
+            "reason":     "Chain break: previous event hash does not match",
             "short_hash": stored_hash[:12] + "…",
         }
 
@@ -271,7 +317,7 @@ def get_event_integrity_status(event_id: int) -> dict:
         "valid":      True,
         "hash":       stored_hash,
         "prev_hash":  stored_prev,
-        "reason":     "Hash verified — event is untampered",
+        "reason":     "Hash verified: event is untampered",
         "short_hash": stored_hash[:12] + "…",
     }
 
@@ -337,3 +383,129 @@ def backfill_hashes() -> int:
     conn.close()
     logger.info("[Integrity] Backfilled %d events.", count)
     return count
+
+
+def reseal_chain() -> int:
+    """
+    Recompute every event's hash and prev_hash in id order.
+    Only for migrations and for repairs after an operator-approved deletion
+    (for example clearing demo events). Never call it to "fix" a chain that
+    failed verification for unknown reasons: that would hide tampering.
+
+    Returns the number of events re-sealed.
+    """
+    from database import get_connection
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, raw_data, timestamp, source FROM events ORDER BY id ASC")
+    rows = cursor.fetchall()
+
+    prev  = ""     # matches log_collector._insert_event: the first event has no predecessor
+    batch = []
+    for row in rows:
+        h = compute_event_hash(row["raw_data"] or "", row["timestamp"] or "", row["source"] or "", prev)
+        batch.append((h, prev, row["id"]))
+        prev = h
+
+    cursor.executemany("UPDATE events SET event_hash = ?, prev_hash = ? WHERE id = ?", batch)
+    conn.commit()
+    conn.close()
+    return len(batch)
+
+
+def _normalize_timestamps() -> int:
+    """
+    Older real-time events were stored with UTC timestamps ("...T...") while batch scans
+    stored local time. Convert the UTC ones to local so the timeline is consistent.
+    Demo events are skipped: their ISO timestamps are already local.
+    """
+    from database import get_connection
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, timestamp, raw_data FROM events WHERE timestamp LIKE '%T%'")
+    updates = []
+    for row in cursor.fetchall():
+        try:
+            raw = json.loads(row["raw_data"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(raw, dict) or raw.get("demo") is True:
+            continue
+        local = utc_to_local(row["timestamp"])
+        if not local:
+            continue
+        if raw.get("TimeGenerated") == row["timestamp"]:
+            raw["TimeGenerated"] = local
+        new_raw = json.dumps(raw, ensure_ascii=False)
+        updates.append((local, new_raw, dedup_hash_of(new_raw), row["id"]))
+    cursor.executemany("UPDATE events SET timestamp = ?, raw_data = ?, dedup_hash = ? WHERE id = ?", updates)
+    conn.commit()
+    conn.close()
+    return len(updates)
+
+
+def _remove_duplicate_events() -> int:
+    """
+    Delete rows whose original evidence is identical to an earlier row (keeps the lowest id).
+    Older versions re-inserted the same log events on every scan, so these are copies,
+    not separate events. Only used by the scheme migration, right before re-sealing.
+    """
+    from database import get_connection
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM events
+        WHERE dedup_hash != ''
+          AND id NOT IN (SELECT MIN(id) FROM events WHERE dedup_hash != '' GROUP BY dedup_hash)
+    """)
+    removed = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return removed
+
+
+def migrate_integrity_scheme() -> int:
+    """
+    One-time upgrade to the current hashing rules (see INTEGRITY_SCHEME).
+    Returns the number of events re-sealed, or 0 if already up to date.
+    """
+    from database import get_connection
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM system_config WHERE key = 'integrity_scheme'")
+    row = cursor.fetchone()
+    if row and row["value"] == INTEGRITY_SCHEME:
+        conn.close()
+        return 0
+    conn.close()
+
+    logger.warning(
+        "[Integrity] Upgrading hash scheme to v%s: re-sealing the existing chain once. "
+        "Hashes now cover the original evidence only, not the scorer's analysis fields.",
+        INTEGRITY_SCHEME,
+    )
+    fixed = _normalize_timestamps()
+    if fixed:
+        logger.warning("[Integrity] Converted %d UTC timestamps to local time.", fixed)
+    removed = _remove_duplicate_events()
+    if removed:
+        logger.warning(
+            "[Integrity] Removed %d duplicate rows (identical evidence stored again by earlier scans).",
+            removed,
+        )
+    n = reseal_chain()
+
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO system_config (key, value, updated_at) VALUES ('integrity_scheme', ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+        (INTEGRITY_SCHEME,),
+    )
+    conn.commit()
+    conn.close()
+    return n

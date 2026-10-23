@@ -9,10 +9,10 @@ UPGRADES vs previous version:
     >500 new events have accumulated OR 24 hours have passed since last
     train. Eliminates the cold-start retraining on every scan.
   - Weighted baseline update: recent data = 30% weight, historical = 70%.
-    Prevents adversarial poisoning — an attacker slowly shifting behaviour
+    Prevents adversarial poisoning: an attacker slowly shifting behaviour
     over days cannot quickly move the baseline.
   - cluster_id + cluster_label written to dedicated DB columns (not just
-    buried inside raw_data JSON) — required by the new database.py schema
+    buried inside raw_data JSON), required by the new database.py schema
     and used by the replay timeline and entity graph.
   - score_single_event(): scores one event instantly using the loaded
     model without retraining. Called by the real-time watchdog in main.py
@@ -39,16 +39,17 @@ try:
 except ImportError:
     _JOBLIB_AVAILABLE = False
     logging.getLogger(__name__).warning(
-        "[Anomaly] joblib not available — model persistence disabled. "
+        "[Anomaly] joblib not available: model persistence disabled. "
         "Install with: pip install joblib"
     )
 
 from database import get_connection
+from integrity import evidence_string
 
 logger = logging.getLogger(__name__)
 
 # ── Model storage path ────────────────────────────────────────
-MODELS_DIR = Path("models")
+MODELS_DIR = Path(__file__).resolve().parent / "models"
 MODELS_DIR.mkdir(exist_ok=True)
 
 IF_MODEL_PATH      = MODELS_DIR / "isolation_forest.joblib"
@@ -184,7 +185,7 @@ def extract_single_feature(event: dict) -> np.ndarray:
 
 
 # ─────────────────────────────────────────────────────────────
-# HISTORICAL BASELINE  (weighted — adversarial poisoning protection)
+# HISTORICAL BASELINE  (weighted: adversarial poisoning protection)
 # ─────────────────────────────────────────────────────────────
 
 def load_baseline() -> dict:
@@ -239,7 +240,7 @@ def update_weighted_baseline(X: np.ndarray, baseline: dict) -> dict:
 
     old_n = baseline.get("n_samples", len(X))
 
-    # 70% historical weight, 30% recent — fixed regardless of sample sizes
+    # 70% historical weight, 30% recent, fixed regardless of sample sizes
     # This is the adversarial poisoning protection:
     # even a flood of crafted events only shifts the baseline by 30%
     HISTORICAL_WEIGHT = 0.70
@@ -256,7 +257,7 @@ def update_weighted_baseline(X: np.ndarray, baseline: dict) -> dict:
 
     save_baseline(new_means.tolist(), new_stds.tolist(), old_n + len(X))
     logger.info(
-        "[Baseline] Updated (70%% historical / 30%% recent) — "
+        "[Baseline] Updated (70%% historical / 30%% recent), "
         "total samples: %d.", old_n + len(X)
     )
     return {"means": new_means.tolist(), "stds": new_stds.tolist(),
@@ -264,7 +265,7 @@ def update_weighted_baseline(X: np.ndarray, baseline: dict) -> dict:
 
 
 def baseline_deviation_score(X: np.ndarray, baseline: dict) -> np.ndarray:
-    """Per-sample deviation from historical baseline, normalised 0–1."""
+    """Per-sample deviation from historical baseline, normalised 0 to 1."""
     if not baseline or "means" not in baseline:
         return np.zeros(len(X))
 
@@ -321,7 +322,7 @@ def _should_retrain(n_current_events: int) -> bool:
         return True  # always retrain if joblib unavailable
 
     if not IF_MODEL_PATH.exists():
-        logger.info("[Models] No saved model found — will train fresh.")
+        logger.info("[Models] No saved model found: will train fresh.")
         return True
 
     meta = _load_model_meta()
@@ -336,21 +337,21 @@ def _should_retrain(n_current_events: int) -> bool:
 
     if new_events_since >= RETRAIN_MIN_NEW_EVENTS:
         logger.info(
-            "[Models] %d new events since last train — retraining.",
+            "[Models] %d new events since last train, retraining.",
             new_events_since,
         )
         return True
 
     if hours_since >= RETRAIN_MAX_AGE_HOURS:
         logger.info(
-            "[Models] %.1f hours since last train — retraining.",
+            "[Models] %.1f hours since last train, retraining.",
             hours_since,
         )
         return True
 
     logger.info(
         "[Models] Using cached model "
-        "(%d new events, %.1fh since train — below thresholds).",
+        "(%d new events, %.1fh since train, below thresholds).",
         new_events_since, hours_since,
     )
     return False
@@ -410,7 +411,7 @@ def load_models_on_startup():
     loaded = _load_models()
     if not loaded:
         logger.info(
-            "[Models] No cached models — will train on first scan."
+            "[Models] No cached models: will train on first scan."
         )
 
 
@@ -466,8 +467,8 @@ def score_single_event(event: dict) -> dict:
 
     Returns:
         {
-          anomaly_score: float (0–1),
-          threat_tier:   int (1–4),
+          anomaly_score: float (0 to 1),
+          threat_tier:   int (1 to 4),
           cluster_id:    int,
           cluster_label: str,
         }
@@ -549,15 +550,15 @@ def score_single_event(event: dict) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# MAIN DETECTION RUN  (batch — manual scan + scheduled)
+# MAIN DETECTION RUN  (batch: manual scan + scheduled)
 # ─────────────────────────────────────────────────────────────
 
 def run_anomaly_detection():
     """
     Score all recent events with:
-      - Isolation Forest (70% weight)  — retrained only when needed
-      - Historical baseline deviation (30% weight)  — weighted 70/30
-      - KMeans cluster labelling       — retrained with IF
+      - Isolation Forest (70% weight) , retrained only when needed
+      - Historical baseline deviation (30% weight) , weighted 70/30
+      - KMeans cluster labelling      : retrained with IF
       - Per-event feature importance
       - Dual-hash integrity stamps
       - cluster_id + cluster_label written to dedicated DB columns
@@ -666,7 +667,7 @@ def run_anomaly_detection():
         b_lbl = CLUSTER_LABELS.get(behav, "Unknown Pattern")
         fi    = compute_feature_importance(X[i], baseline)
 
-        raw_orig = ev.get("raw_data", "")
+        raw_orig = evidence_string(ev.get("raw_data", ""))   # original evidence only, so raw_hash is stable
         raw_obj  = {}
         try:
             raw_obj = json.loads(raw_orig)
@@ -705,7 +706,7 @@ def run_anomaly_detection():
         # Include cluster_id + cluster_label for the dedicated DB columns
         batch.append((score, tier, updated_raw, cid, b_lbl, ev["id"]))
 
-    # ── Single batched write — now also updates cluster columns ─
+    # ── Single batched write: now also updates cluster columns ─
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.executemany("""
@@ -721,12 +722,12 @@ def run_anomaly_detection():
     conn.close()
 
     logger.info(
-        "[Anomaly] Scored %d events — IF + baseline(weighted) + "
+        "[Anomaly] Scored %d events: IF + baseline(weighted) + "
         "KMeans(%d) + feature importance + dual hash. Retrained: %s.",
         len(events), n_clusters, do_retrain,
     )
     print(
-        f"[Anomaly] Scored {len(events)} events — "
+        f"[Anomaly] Scored {len(events)} events: "
         f"KMeans({n_clusters}), retrained={do_retrain}."
     )
 

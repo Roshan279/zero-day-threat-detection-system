@@ -1,21 +1,23 @@
 """
 response_executor.py
-Executes real active-response actions on the Windows host.
+Executes real active-response actions on the host (Windows, Linux, macOS).
 
-ACTIONS:
-  - Disable a Windows user account:   net user {account} /active:no
-  - Block a source IP via firewall:    netsh advfirewall firewall add rule …
-  - Reverse both actions:              net user /active:yes + delete rule
+ACTIONS (per platform):
+  - Disable a user account:  Windows `net user /active:no` | Linux `usermod --lock`
+                             | macOS `pwpolicy -disableuser`
+  - Block a source IP:       Windows `netsh advfirewall` | Linux `iptables`/`ufw`
+                             | macOS `pfctl` table
+  - Reverse both actions with the matching enable / delete command.
 
 SAFETY CONTROLS:
-  1. Whitelist — SYSTEM, Administrator, and local IPs are never blocked.
-  2. Privilege check — detects if running as Administrator on startup.
+  1. Whitelist: SYSTEM, Administrator, and local IPs are never blocked.
+  2. Privilege check: detects if running as Administrator on startup.
      If not, all actions go to dry-run mode automatically.
-  3. Dry-run mode — can be forced on via DRY_RUN = True. All commands
+  3. Dry-run mode: can be forced on via DRY_RUN = True. All commands
      are built and logged but never executed. Safe for testing.
-  4. Audit trail — every attempted action (success or fail) is written
+  4. Audit trail: every attempted action (success or fail) is written
      to the response_audit table in the DB. Never deleted (forensic record).
-  5. Input validation — account names and IPs are validated before being
+  5. Input validation: account names and IPs are validated before being
      passed to subprocess to prevent shell injection.
 
 USAGE (from main.py):
@@ -27,7 +29,10 @@ USAGE (from main.py):
 """
 
 import re
+import os
 import ctypes
+import shutil
+import ipaddress
 import logging
 import platform
 import subprocess
@@ -35,6 +40,8 @@ from datetime import datetime
 from typing import Literal
 
 logger = logging.getLogger(__name__)
+
+_OS = platform.system()   # "Windows" | "Linux" | "Darwin"
 
 # ── Dry-run flag ──────────────────────────────────────────────
 # Set to True to build + log commands without executing them.
@@ -55,6 +62,9 @@ ACCOUNT_WHITELIST = {
     "nt authority\\local service",
     "nt authority\\network service",
     "guest",              # disabling guest rarely helps and can break things
+    "root",               # Linux/macOS superuser
+    "daemon",
+    "nobody",
 }
 
 IP_WHITELIST = {
@@ -65,7 +75,7 @@ IP_WHITELIST = {
 }
 
 # Auto-whitelist private subnets that are almost certainly the analyst's
-# own network — blocking these would lock out the operator.
+# own network: blocking these would lock out the operator.
 _PRIVATE_PREFIXES = ("10.", "192.168.", "172.16.", "172.17.", "172.18.",
                      "172.19.", "172.20.", "172.21.", "172.22.", "172.23.",
                      "172.24.", "172.25.", "172.26.", "172.27.", "172.28.",
@@ -87,15 +97,52 @@ _SAFE_IP_RE      = re.compile(
 
 def is_admin() -> bool:
     """
-    Returns True if the current process has Administrator privileges
-    on Windows. Always returns False on non-Windows platforms.
+    Returns True if the process is elevated: Administrator on Windows,
+    root (euid 0) on Linux/macOS.
     """
-    if platform.system() != "Windows":
-        return False
     try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        if _OS == "Windows":
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        return os.geteuid() == 0
     except Exception:
         return False
+
+
+# ─────────────────────────────────────────────────────────────
+# PLATFORM COMMAND BUILDERS
+# ─────────────────────────────────────────────────────────────
+
+def _account_cmd(account: str, enable: bool) -> list[str]:
+    account = account.strip()
+    if _OS == "Windows":
+        return ["net", "user", account, "/active:yes" if enable else "/active:no"]
+    if _OS == "Darwin":
+        return ["pwpolicy", "-u", account, "-enableuser" if enable else "-disableuser"]
+    # Linux: lock the password AND expire the account so SSH keys stop working too
+    if enable:
+        return ["usermod", "--unlock", "--expiredate", "", account]
+    return ["usermod", "--lock", "--expiredate", "1", account]
+
+
+def _ip_cmd(ip: str, rule_name: str, block: bool) -> list[str]:
+    ip = ip.strip()
+    if _OS == "Windows":
+        if block:
+            return ["netsh", "advfirewall", "firewall", "add", "rule",
+                    f"name={rule_name}", "dir=in", "action=block",
+                    f"remoteip={ip}", "enable=yes", "profile=any"]
+        return ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule_name}"]
+    if _OS == "Darwin":
+        # Requires a pf rule such as `block drop in quick from <ForensicDetective_Block>`
+        # (see README, "Active response on macOS").
+        return ["pfctl", "-t", "ForensicDetective_Block", "-T",
+                "add" if block else "delete", ip]
+    if shutil.which("iptables") or shutil.which("ip6tables"):
+        tool = "ip6tables" if ":" in ip else "iptables"
+        return [tool, "-I" if block else "-D", "INPUT", "-s", ip,
+                "-m", "comment", "--comment", rule_name, "-j", "DROP"]
+    return ["ufw", "insert", "1", "deny", "from", ip] if block else \
+           ["ufw", "delete", "deny", "from", ip]
 
 
 def check_and_warn_privileges() -> bool:
@@ -112,7 +159,7 @@ def check_and_warn_privileges() -> bool:
         logger.warning(
             "[ResponseExecutor] NOT running as Administrator. "
             "Active response (account block / IP block) will run in "
-            "DRY-RUN mode — commands will be logged but NOT executed. "
+            "DRY-RUN mode: commands will be logged but NOT executed. "
             "Restart backend as Administrator to enable live response."
         )
     else:
@@ -132,7 +179,7 @@ def _validate_account(account: str) -> tuple[bool, str]:
     """Validate account name is safe to pass to subprocess."""
     if not account or not account.strip():
         return False, "Account name is empty"
-    if not _SAFE_ACCOUNT_RE.match(account.strip()):
+    if not _SAFE_ACCOUNT_RE.match(account.strip()) or account.strip().startswith("-"):
         return False, f"Account name contains unsafe characters: {account!r}"
     if account.strip().lower() in ACCOUNT_WHITELIST:
         return False, f"Account is on the whitelist and will not be blocked: {account!r}"
@@ -150,6 +197,12 @@ def _validate_ip(ip: str) -> tuple[bool, str]:
         return False, f"IP is a private/internal address (auto-whitelisted): {ip}"
     if not _SAFE_IP_RE.match(ip):
         return False, f"IP address contains unsafe characters: {ip!r}"
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False, f"Not a valid IP address: {ip!r}"
+    if addr.is_private or addr.is_loopback or addr.is_link_local:
+        return False, f"IP is a private/internal address (auto-whitelisted): {ip}"
     return True, ""
 
 
@@ -208,7 +261,7 @@ def _run(cmd: list[str], dry_run: bool = False) -> tuple[bool, str]:
     cmd_str = " ".join(cmd)
 
     if dry_run or DRY_RUN:
-        logger.info("[ResponseExecutor] DRY-RUN — would execute: %s", cmd_str)
+        logger.info("[ResponseExecutor] DRY-RUN: would execute: %s", cmd_str)
         return True, f"[DRY-RUN] Command would run: {cmd_str}"
 
     try:
@@ -217,7 +270,7 @@ def _run(cmd: list[str], dry_run: bool = False) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=15,
-            shell=False,          # NEVER shell=True — prevents injection
+            shell=False,          # NEVER shell=True: prevents injection
         )
         output = (result.stdout + result.stderr).strip()
         success = result.returncode == 0
@@ -280,7 +333,7 @@ def disable_account(
             "reason":  reason,
         }
 
-    cmd = ["net", "user", account.strip(), "/active:no"]
+    cmd = _account_cmd(account, enable=False)
     success, output = _run(cmd, dry_run=dry_run)
     outcome = "dry_run" if (dry_run or DRY_RUN) else ("success" if success else "failed")
 
@@ -315,7 +368,7 @@ def enable_account(
         return {"success": False, "action": "unblock_account",
                 "target": account, "output": reason, "dry_run": dry_run or DRY_RUN}
 
-    cmd = ["net", "user", account.strip(), "/active:yes"]
+    cmd = _account_cmd(account, enable=True)
     success, output = _run(cmd, dry_run=dry_run)
     outcome = "dry_run" if (dry_run or DRY_RUN) else ("success" if success else "failed")
 
@@ -365,15 +418,7 @@ def block_ip(
         }
 
     rule_name = f"{RULE_PREFIX}{ip.replace(':', '_')}"
-    cmd = [
-        "netsh", "advfirewall", "firewall", "add", "rule",
-        f"name={rule_name}",
-        "dir=in",
-        "action=block",
-        f"remoteip={ip.strip()}",
-        "enable=yes",
-        "profile=any",
-    ]
+    cmd = _ip_cmd(ip, rule_name, block=True)
     success, output = _run(cmd, dry_run=dry_run)
     outcome = "dry_run" if (dry_run or DRY_RUN) else ("success" if success else "failed")
 
@@ -409,10 +454,7 @@ def unblock_ip(
                 "target": ip, "output": reason, "dry_run": dry_run or DRY_RUN}
 
     rule_name = f"{RULE_PREFIX}{ip.replace(':', '_')}"
-    cmd = [
-        "netsh", "advfirewall", "firewall", "delete", "rule",
-        f"name={rule_name}",
-    ]
+    cmd = _ip_cmd(ip, rule_name, block=False)
     success, output = _run(cmd, dry_run=dry_run)
     outcome = "dry_run" if (dry_run or DRY_RUN) else ("success" if success else "failed")
 
@@ -486,7 +528,7 @@ def execute_block(
         "results":      results,
         "message": (
             f"[DRY-RUN] Would block {entity} ({entity_type}). "
-            f"No real action taken — backend needs Administrator privileges."
+            f"No real action taken: backend needs Administrator privileges."
             if is_dry else
             f"Blocked {entity} ({entity_type}). Actions: {', '.join(actions_taken)}."
             if overall_success else

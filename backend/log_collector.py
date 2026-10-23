@@ -3,20 +3,21 @@ log_collector.py
 Collects Windows Event Logs and stores them in the forensic database.
 
 UPGRADES vs previous version:
-  - Real-time watcher via EvtSubscribe() — fires a callback the instant
+  - Real-time watcher via EvtSubscribe(), fires a callback the instant
     Windows writes a new event log entry. Alert latency: <1 second.
     Replaces the 60-second polling loop for live detection.
   - collect_logs() kept for manual/startup batch scans.
-  - SHA-256 CHAINED integrity hash on every INSERT — each event hashes
+  - SHA-256 CHAINED integrity hash on every INSERT, each event hashes
     the previous event's hash so the full chain can be verified.
   - prev_hash stored alongside event_hash for chain-of-custody.
   - cluster_id and cluster_label stored as -1 / '' on INSERT;
     anomaly_detector.py fills them in after ML scoring.
   - Callbacks push scored events to a thread-safe queue read by main.py.
 
-Cross-platform note: win32evtlog is Windows-only. On non-Windows systems
-the collector prints a warning and returns 0 so the rest of the app still
-runs (useful for development / demo mode on Linux/macOS).
+Cross-platform: Windows uses win32evtlog (pywin32). Linux and macOS use
+os_collectors.py (journald / auth.log, macOS unified log), which normalises
+entries to the same Windows-style Event IDs so the rest of the app is
+platform-agnostic.
 """
 
 import json
@@ -25,10 +26,10 @@ import platform
 import queue
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from database import get_connection, get_last_event_hash
-from integrity import compute_event_hash
+from integrity import compute_event_hash, dedup_hash_of, utc_to_local
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ TYPE_MAP = {
 def hash_event(data: str) -> str:
     """
     Simple SHA-256 of raw event string.
-    Used for DEDUPLICATION — separate from the chained integrity hash.
+    Used for DEDUPLICATION: separate from the chained integrity hash.
     Kept as single source of truth; imported by demo_mode.py too.
     """
     import hashlib
@@ -98,7 +99,7 @@ def _parse_event_object(event, source_name: str) -> dict | None:
             "Data":          " | ".join(strings[:3])[:500] if strings else "",
         }
         raw_str    = json.dumps(raw, ensure_ascii=False)
-        dedup_hash = hash_event(raw_str)
+        dedup_hash = dedup_hash_of(raw_str)
 
         return {
             "timestamp":  str(event.TimeGenerated),
@@ -115,7 +116,7 @@ def _parse_event_object(event, source_name: str) -> dict | None:
 def _parse_evt_xml(xml_str: str, source_name: str) -> dict | None:
     """
     Parse an event rendered as XML by the new EvtRender API.
-    EvtSubscribe returns events as XML strings — extract the key fields.
+    EvtSubscribe returns events as XML strings, extract the key fields.
     Falls back gracefully if XML parsing fails.
     """
     try:
@@ -131,14 +132,14 @@ def _parse_evt_xml(xml_str: str, source_name: str) -> dict | None:
         if sys_el is not None:
             tc = sys_el.find("e:TimeCreated", ns)
             if tc is not None:
-                time_str = tc.get("SystemTime", "")[:19]
+                time_str = utc_to_local(tc.get("SystemTime", ""))
 
         level_map = {"0":"INFORMATION","1":"CRITICAL","2":"ERROR",
                      "3":"WARNING","4":"INFORMATION","5":"VERBOSE"}
         level_raw = sys_el.findtext("e:Level", namespaces=ns) if sys_el else "0"
         event_type = level_map.get(str(level_raw), "INFORMATION")
 
-        # EventData block — extract all named/unnamed data fields
+        # EventData block: extract all named/unnamed data fields
         ev_data = root.find("e:EventData", ns)
         data_fields: dict = {}
         if ev_data is not None:
@@ -150,17 +151,17 @@ def _parse_evt_xml(xml_str: str, source_name: str) -> dict | None:
 
         raw = {
             "EventID":       int(event_id) if event_id.isdigit() else 0,
-            "TimeGenerated": time_str or datetime.now().isoformat(),
+            "TimeGenerated": time_str or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "SourceName":    source_name,
             "EventType":     event_type,
             "ComputerName":  computer,
             **data_fields,
         }
         raw_str    = json.dumps(raw, ensure_ascii=False)
-        dedup_hash = hash_event(raw_str)
+        dedup_hash = dedup_hash_of(raw_str)
 
         return {
-            "timestamp":  time_str or datetime.now().isoformat(),
+            "timestamp":  time_str or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "source":     source_name,
             "event_type": event_type,
             "raw_data":   raw_str,
@@ -172,7 +173,7 @@ def _parse_evt_xml(xml_str: str, source_name: str) -> dict | None:
         # Fallback: store raw XML with minimal metadata
         ts         = datetime.now().isoformat()
         raw_str    = json.dumps({"raw_xml": xml_str[:1000], "SourceName": source_name})
-        dedup_hash = hash_event(raw_str)
+        dedup_hash = dedup_hash_of(raw_str)
         return {
             "timestamp":  ts,
             "source":     source_name,
@@ -191,7 +192,8 @@ def _parse_evt_xml(xml_str: str, source_name: str) -> dict | None:
 _insert_lock = threading.Lock()
 
 
-def _insert_event(parsed: dict) -> int | None:
+def _insert_event(parsed: dict, anomaly_score: float | None = None,
+                  threat_tier: int | None = None) -> int | None:
     """
     Insert a parsed event into the database with:
       - Deduplication check (skip if dedup_hash already seen)
@@ -210,7 +212,7 @@ def _insert_event(parsed: dict) -> int | None:
 
             # Deduplication
             cursor.execute(
-                "SELECT id FROM events WHERE event_hash = ? LIMIT 1",
+                "SELECT id FROM events WHERE dedup_hash = ? LIMIT 1",
                 (parsed["dedup_hash"],)
             )
             if cursor.fetchone():
@@ -235,9 +237,10 @@ def _insert_event(parsed: dict) -> int | None:
             cursor.execute("""
                 INSERT INTO events
                     (timestamp, source, event_type, raw_data,
-                     event_hash, prev_hash,
+                     event_hash, prev_hash, dedup_hash,
+                     anomaly_score, threat_tier,
                      cluster_id, cluster_label)
-                VALUES (?, ?, ?, ?, ?, ?, -1, '')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, -1, '')
             """, (
                 parsed["timestamp"],
                 parsed["source"],
@@ -245,6 +248,9 @@ def _insert_event(parsed: dict) -> int | None:
                 parsed["raw_data"],
                 integrity_hash,
                 prev_hash,
+                parsed["dedup_hash"],
+                anomaly_score if anomaly_score is not None else 0.0,
+                threat_tier   if threat_tier   is not None else 0,
             ))
 
             new_id = cursor.lastrowid
@@ -275,7 +281,7 @@ def _make_evt_callback(source_name: str):
     def callback(action, context, event_handle):
         """
         Called by Windows immediately when a new event is written.
-        Runs in a Windows thread — must be fast and thread-safe.
+        Runs in a Windows thread: must be fast and thread-safe.
         """
         try:
             if action != win32evtlog.EvtSubscribeActionDeliver:
@@ -297,7 +303,7 @@ def _make_evt_callback(source_name: str):
                 try:
                     realtime_event_queue.put_nowait(new_id)
                 except queue.Full:
-                    # Queue full — drop oldest to make room
+                    # Queue full: drop oldest to make room
                     try:
                         realtime_event_queue.get_nowait()
                         realtime_event_queue.put_nowait(new_id)
@@ -330,17 +336,16 @@ def start_realtime_watcher() -> bool:
 
     with _watcher_lock:
         if _watcher_running:
-            logger.info("[WATCHER] Already running — skipping duplicate start.")
+            logger.info("[WATCHER] Already running: skipping duplicate start.")
             return True
 
     if platform.system() != "Windows":
-        logger.info("[WATCHER] Non-Windows platform — real-time watcher not available.")
-        return False
+        return _start_posix_watcher()
 
     try:
         import win32evtlog
     except ImportError:
-        logger.error("[WATCHER] pywin32 not installed — real-time watcher unavailable.")
+        logger.error("[WATCHER] pywin32 not installed: real-time watcher unavailable.")
         return False
 
     def watcher_thread_fn():
@@ -358,11 +363,11 @@ def start_realtime_watcher() -> bool:
                     )
                     subscriptions.append((source_name, sub))
                     logger.info(
-                        "[WATCHER] Subscribed to %s log — real-time monitoring active.",
+                        "[WATCHER] Subscribed to %s log: real-time monitoring active.",
                         source_name,
                     )
                 except Exception as exc:
-                    # Security log requires Administrator — warn but continue
+                    # Security log requires Administrator: warn but continue
                     logger.warning(
                         "[WATCHER] Could not subscribe to %s: %s "
                         "(Security log requires Administrator privileges)",
@@ -370,7 +375,7 @@ def start_realtime_watcher() -> bool:
                     )
 
             if not subscriptions:
-                logger.error("[WATCHER] No log subscriptions succeeded — watcher inactive.")
+                logger.error("[WATCHER] No log subscriptions succeeded: watcher inactive.")
                 _watcher_running = False
                 return
 
@@ -380,7 +385,7 @@ def start_realtime_watcher() -> bool:
                 len(subscriptions),
             )
 
-            # Keep the thread alive — subscriptions are callback-driven
+            # Keep the thread alive: subscriptions are callback-driven
             # and stay active as long as this thread runs.
             while _watcher_running:
                 time.sleep(1)
@@ -410,6 +415,89 @@ def start_realtime_watcher() -> bool:
     return True
 
 
+def _to_parsed(ev: dict) -> dict:
+    """Convert an os_collectors event into the dict _insert_event() expects."""
+    raw_str = json.dumps(ev["raw"], ensure_ascii=False)
+    return {
+        "timestamp":  ev["timestamp"],
+        "source":     ev["source"],
+        "event_type": ev["event_type"],
+        "raw_data":   raw_str,
+        "dedup_hash": dedup_hash_of(raw_str),
+    }
+
+
+def _enqueue(new_id: int) -> None:
+    try:
+        realtime_event_queue.put_nowait(new_id)
+    except queue.Full:
+        try:
+            realtime_event_queue.get_nowait()
+            realtime_event_queue.put_nowait(new_id)
+        except queue.Empty:
+            pass
+
+
+def _start_posix_watcher() -> bool:
+    """Real-time watcher for Linux (journald / auth.log) and macOS (unified log)."""
+    global _watcher_running, _watcher_thread
+    import os_collectors
+
+    if not os_collectors.is_supported():
+        logger.info("[WATCHER] Unsupported platform %s: real-time watcher unavailable.",
+                    platform.system())
+        return False
+
+    try:
+        import os
+        if os.geteuid() != 0:
+            logger.warning(
+                "[WATCHER] Not running as root: journald/auth logs may be partial. "
+                "Run with sudo (or add the user to the 'adm' and 'systemd-journal' groups) "
+                "for full coverage.")
+    except AttributeError:
+        pass
+
+    def watcher_thread_fn():
+        global _watcher_running
+        try:
+            for ev in os_collectors.stream_events(lambda: _watcher_running):
+                new_id = _insert_event(_to_parsed(ev))
+                if new_id is not None:
+                    _enqueue(new_id)
+        except Exception as exc:
+            logger.error("[WATCHER] Fatal watcher error: %s", exc, exc_info=True)
+        finally:
+            _watcher_running = False
+
+    with _watcher_lock:
+        _watcher_running = True
+        _watcher_thread = threading.Thread(
+            target=watcher_thread_fn, name="LogWatcher", daemon=True)
+        _watcher_thread.start()
+
+    logger.info("[WATCHER] %s log watcher started.", platform.system())
+    return True
+
+
+def _collect_posix(max_events: int, max_age_minutes: int | None = None) -> int:
+    import os_collectors
+    if not os_collectors.is_supported():
+        logger.info("[COLLECTOR] Unsupported platform: use /demo/inject for test events.")
+        return 0
+    collected = 0
+    cutoff = (datetime.now() - timedelta(minutes=max_age_minutes)).strftime("%Y-%m-%d %H:%M:%S") if max_age_minutes else None
+    for ev in os_collectors.collect_batch(max_events):
+        if cutoff and ev["timestamp"] < cutoff:     # timestamps are "YYYY-MM-DD HH:MM:SS", so strings compare in time order
+            continue
+        new_id = _insert_event(_to_parsed(ev))
+        if new_id is not None:
+            collected += 1
+            _enqueue(new_id)
+    logger.info("[COLLECTOR] Batch: %d new events inserted.", collected)
+    return collected
+
+
 def stop_realtime_watcher():
     """Signal the watcher thread to shut down cleanly."""
     global _watcher_running
@@ -427,25 +515,27 @@ def is_watcher_running() -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def _get_existing_hashes(cursor) -> set:
-    """Return all event_hash values already in the DB for deduplication."""
-    cursor.execute("SELECT event_hash FROM events")
-    return {row["event_hash"] for row in cursor.fetchall()}
+    """Return the dedup_hash of every stored event, to skip events we already have."""
+    cursor.execute("SELECT dedup_hash FROM events WHERE dedup_hash != ''")
+    return {row["dedup_hash"] for row in cursor.fetchall()}
 
 
-def collect_logs(max_events: int = 100) -> int:
+def collect_logs(max_events: int = 100, max_age_minutes: int | None = None) -> int:
     """
     Read up to max_events from the Windows Event Log and insert only new ones.
     Uses the old OpenEventLog/ReadEventLog API for batch backfill.
     Returns the count of newly inserted events.
 
+    max_age_minutes: if set, ignore events older than this. The automatic health
+    check uses it so it only catches recent misses instead of slowly importing the
+    whole log history (which would also raise alerts for old events).
+
     Called by:
-      - main.py /scan endpoint (manual scan)
-      - Startup backfill before the real-time watcher takes over
-      - Watchdog health-check every 60s (catches any missed events)
+      - main.py /scan endpoint (manual scan, may reach further back)
+      - Watchdog health-check every 60s (recent events only)
     """
     if platform.system() != "Windows":
-        logger.info("[COLLECTOR] Non-Windows — skipping. Use /demo/inject for test events.")
-        return 0
+        return _collect_posix(max_events, max_age_minutes)
 
     try:
         import win32evtlog
@@ -463,6 +553,7 @@ def collect_logs(max_events: int = 100) -> int:
     collected   = 0
     per_source  = max(1, max_events // len(SOURCES))
     to_insert   = []
+    cutoff      = (datetime.now() - timedelta(minutes=max_age_minutes)) if max_age_minutes else None
 
     for log_type, _ in SOURCES:
         source_count = 0
@@ -471,7 +562,8 @@ def collect_logs(max_events: int = 100) -> int:
             flags = (win32evtlog.EVENTLOG_BACKWARDS_READ |
                      win32evtlog.EVENTLOG_SEQUENTIAL_READ)
 
-            while source_count < per_source:
+            too_old = False
+            while source_count < per_source and not too_old:
                 try:
                     batch = win32evtlog.ReadEventLog(hand, flags, 0)
                 except Exception as read_exc:
@@ -482,6 +574,13 @@ def collect_logs(max_events: int = 100) -> int:
                     break
 
                 for event in batch:
+                    if cutoff is not None:
+                        try:
+                            if event.TimeGenerated.replace(tzinfo=None) < cutoff:
+                                too_old = True     # the log is read newest-first, so the rest is older
+                                break
+                        except Exception:
+                            pass
                     parsed = _parse_event_object(event, log_type)
                     if not parsed:
                         continue
@@ -522,4 +621,4 @@ def collect_logs(max_events: int = 100) -> int:
 
 if __name__ == "__main__":
     n = collect_logs()
-    print(f"Done — {n} events collected.")
+    print(f"Done: {n} events collected.")

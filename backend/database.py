@@ -3,24 +3,28 @@ database.py
 SQLite connection, schema initialisation, and lightweight migration layer.
 
 UPGRADES vs previous version:
-  - prev_hash column added to events — enables chained SHA-256 integrity
+  - prev_hash column added to events, enables chained SHA-256 integrity
     (each event hashes the previous, proving order + completeness).
-  - cluster_id + cluster_label columns added to events — stores KMeans
+  - cluster_id + cluster_label columns added to events, stores KMeans
     behavioral cluster assignments from anomaly_detector.py.
-  - flagged_entities table — stores blocked accounts/IPs with full audit
+  - flagged_entities table: stores blocked accounts/IPs with full audit
     fields (who blocked, when, why, reversal status).
-  - response_audit table — immutable log of every block/unblock action
+  - response_audit table: immutable log of every block/unblock action
     taken by response_executor.py (account disable, firewall rule, etc.).
-  - All new columns added via the safe migration list — existing databases
+  - All new columns added via the safe migration list, existing databases
     are upgraded without data loss on next startup.
 """
 
+import os
 import sqlite3
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = "forensic.db"
+# Anchored to this file so the DB is found regardless of the launch directory.
+# Set FORENSIC_DB_PATH to use a different database file (for example for testing).
+DB_PATH = os.environ.get("FORENSIC_DB_PATH") or str(Path(__file__).resolve().parent / "forensic.db")
 
 
 def get_connection():
@@ -121,7 +125,7 @@ def init_db():
     # ── Schema migrations (safe to re-run on every startup) ───
     # Each ALTER TABLE is skipped silently if the column already exists.
     add_column_migrations = [
-        # Original columns — kept for databases that predate even these
+        # Original columns: kept for databases that predate even these
         "ALTER TABLE events ADD COLUMN event_hash    TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE events ADD COLUMN anomaly_score REAL    DEFAULT 0.0",
         "ALTER TABLE events ADD COLUMN threat_tier   INTEGER DEFAULT 0",
@@ -130,6 +134,8 @@ def init_db():
         "ALTER TABLE events ADD COLUMN prev_hash     TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE events ADD COLUMN cluster_id    INTEGER DEFAULT -1",
         "ALTER TABLE events ADD COLUMN cluster_label TEXT    DEFAULT ''",
+        # Identity of the original evidence, used to skip events we already stored
+        "ALTER TABLE events ADD COLUMN dedup_hash    TEXT    NOT NULL DEFAULT ''",
     ]
 
     for sql in add_column_migrations:
@@ -137,17 +143,26 @@ def init_db():
             cursor.execute(sql)
             logger.info("[DB] Migration applied: %s", sql[:70])
         except sqlite3.OperationalError:
-            pass  # Column already exists — expected after first run
+            pass  # Column already exists: expected after first run
 
     # ── Create new indexes if they don't exist yet ─────────────
     index_migrations = [
         "CREATE INDEX IF NOT EXISTS idx_events_cluster ON events (cluster_id)",
+        "CREATE INDEX IF NOT EXISTS idx_events_dedup   ON events (dedup_hash)",
     ]
     for sql in index_migrations:
         try:
             cursor.execute(sql)
         except sqlite3.OperationalError:
             pass
+
+    # ── Backfill dedup_hash for rows stored before the column existed ──
+    from integrity import dedup_hash_of
+    cursor.execute("SELECT id, raw_data FROM events WHERE dedup_hash = ''")
+    missing = [(dedup_hash_of(r["raw_data"]), r["id"]) for r in cursor.fetchall()]
+    if missing:
+        cursor.executemany("UPDATE events SET dedup_hash = ? WHERE id = ?", missing)
+        logger.info("[DB] Backfilled dedup_hash for %d events.", len(missing))
 
     # ── Legacy column rename: 'hash' → 'event_hash' ───────────
     cursor.execute("PRAGMA table_info(events)")
@@ -195,7 +210,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_events_source    ON events (source);
             CREATE INDEX IF NOT EXISTS idx_events_cluster   ON events (cluster_id);
         """)
-        logger.info("[DB] Legacy 'hash' column removed — migration complete.")
+        logger.info("[DB] Legacy 'hash' column removed: migration complete.")
 
     elif "hash" in columns and "event_hash" not in columns:
         logger.info("[DB] Renaming legacy 'hash' column to 'event_hash'.")
@@ -261,7 +276,7 @@ def prune_old_data(
     """
     Delete oldest rows beyond the given limits.
     Returns the number of event rows pruned.
-    Note: response_audit and flagged_entities are NOT pruned —
+    Note: response_audit and flagged_entities are NOT pruned,
     they are immutable forensic records and must be retained.
     """
     conn   = get_connection()

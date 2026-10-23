@@ -14,3 +14,7 @@ frontend/.env.local
 # --- OS Specific ---
 .DS_Store
 Thumbs.db
+# Database backups made by repair steps
+backend/*.bak*
+backend/*.db-shm
+backend/*.db-wal

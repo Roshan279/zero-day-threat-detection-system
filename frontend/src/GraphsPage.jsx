@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { TIER, tierOf } from "./px/cardModel"
-import { bucketize, clusterCounts, commonEvents, heatGrid, riskOf, sourceOf, stamp, tierCounts, tsOf, TIERS, SOURCES } from "./graphData"
+import { baselineOf, bucketize, clusterCounts, commonEvents, riskOf, sourceOf, stamp, tierCounts, tsOf, TIERS, SOURCES } from "./graphData"
 import GraphDeck, { DECK_CSS } from "./GraphDeck"
+import ScoreScatter from "./ScoreScatter"
 import PxIcon from "./px/PxIcon"
 import {
-  BareCtx, BoardLens, Box, Empty, GRAPH_CSS, Heatmap, IsoLens, LevelTokens, ListBars, RiskDial, StepLine, Tip, hideTip,
+  BareCtx, BoardLens, Box, CardGrid, Empty, GRAPH_CSS, RiskPanel, Tip, hideTip,
 } from "./GraphLenses"
 
 // ─────────────────────────────────────────────────────────────
 // GRAPHS: the numbers behind the cards. Each chart answers one question, once:
-//   how bad (dial), where it piles up (chips), how it moves (towers), which events stand out (step line),
-//   which log and when (board), which hours (heatmap), what kind (clusters, common events).
+//   how bad and where it piles up (dial + terrain), which events stand out (step line),
+//   which log and when (board), what kind (clusters, common events).
 // Controls above everything:
 //   - tier chips switch a threat level on or off
 //   - each chart is a card in a deck; click the top card to open its chart in a window
@@ -41,7 +42,7 @@ function Brush({ master, range, onChange }) {
     <div className="pz-panel" style={{ padding: "6px 12px 6px", marginBottom: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, fontSize: 17 }}>
         <span className="pz-title" style={{ fontSize: 20 }}>Time brush</span>
-        <span style={{ color: "#9fb4b2" }}>{sel ? `${stamp(sel[0])}  to  ${stamp(sel[1])}` : "drag across the strip to zoom every chart. click to clear."}</span>
+        <span style={{ color: "#b5e8f2" }}>{sel ? `${stamp(sel[0])}  to  ${stamp(sel[1])}` : "drag across the strip to zoom every chart. click to clear."}</span>
         {range && <button className="pz-btn gray small" style={{ marginLeft: "auto" }} onClick={() => onChange(null)}>Clear range</button>}
       </div>
       <svg ref={ref} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", cursor: "col-resize", touchAction: "none", userSelect: "none" }} shapeRendering="crispEdges"
@@ -49,7 +50,7 @@ function Brush({ master, range, onChange }) {
         onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); const t = tAt(e.clientX); setDrag({ a: t, b: t, cx: e.clientX }) }}
         onPointerMove={(e) => { if (drag) setDrag({ ...drag, b: tAt(e.clientX) }) }}
         onPointerUp={end} onPointerCancel={() => setDrag(null)}>
-        <rect x="0" y="0" width={W} height={H - padB} fill="#1b2829" />
+        <rect x="0" y="0" width={W} height={H - padB} fill="#2a3638" />
         {buckets.map((b, i) => {
           let y = H - padB
           return TIERS.map(t => {
@@ -68,16 +69,19 @@ function Brush({ master, range, onChange }) {
         )}
         <rect x="0" y="0" width={W} height={H - padB} fill="none" stroke="#1d2527" strokeWidth="3" />
         {[0, buckets.length - 1].map(i => (
-          <text key={i} x={i === 0 ? 2 : W - 2} y={H - 3} textAnchor={i === 0 ? "start" : "end"} fontFamily="var(--pxfont)" fontSize="13" fill="#9fb4b2">{buckets[i].label}</text>
+          <text key={i} x={i === 0 ? 2 : W - 2} y={H - 3} textAnchor={i === 0 ? "start" : "end"} fontFamily="var(--pxfont)" fontSize="13" fill="#b5e8f2">{buckets[i].label}</text>
         ))}
       </svg>
     </div>
   )
 }
 
+// The behaviour labels the detector can give (backend CLUSTER_LABELS)
+const KNOWN_PATTERNS = ["Normal System Activity", "Brute Force Pattern", "Credential Access Pattern", "Privilege Escalation Pattern", "Persistence Pattern", "Data Exfiltration Pattern", "Unknown Pattern"]
+
 const WIDE = { W: 720, H: 240 }
 
-export default function GraphsPage({ events, onPickTier }) {
+export default function GraphsPage({ events }) {
   const [range, setRange] = useState(null)
   const [hidden, setHidden] = useState(() => new Set())
   const [openId, setOpenId] = useState(null)
@@ -95,43 +99,33 @@ export default function GraphsPage({ events, onPickTier }) {
   // One card per chart: the face shows a headline number, the window shows the chart itself.
   const cards = useMemo(() => {
     const risk = riskOf(filtered)
-    const band = risk.risk < 0.25 ? "calm" : risk.risk < 0.5 ? "watchful" : risk.risk < 0.75 ? "danger" : "critical"
+    const band = risk.risk < 0.25 ? "clean" : risk.risk < 0.5 ? "traces" : risk.risk < 0.75 ? "toxic" : "contaminated"
     const tc = tierCounts(filtered)
-    const { buckets } = bucketize(filtered, 14)
-    const peak = buckets.reduce((m, b) => Math.max(m, b.total), 0)
-    const scores = filtered.map(e => e.anomaly_score || 0)
-    const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
+    const base = baselineOf(events, filtered)
     const bySource = Object.fromEntries(SOURCES.map(s => [s, 0]))
     filtered.forEach(e => { bySource[sourceOf(e)]++ })
     const [busySrc, busyN] = Object.entries(bySource).sort((a, b) => b[1] - a[1])[0]
-    const { grid } = heatGrid(filtered)
-    const perHour = Array.from({ length: 24 }, (_, h) => grid.reduce((s, row) => s + row[h], 0))
-    const peakHour = perHour.indexOf(Math.max(...perHour))
-    const clusters = clusterCounts(filtered)
+    const clusters = clusterCounts(filtered, 12)
+    // every pattern the model can name, so the ones that have not shown up yet are still on the table
+    const patternRows = [...clusters, ...KNOWN_PATTERNS.filter(n => !clusters.some(c => c[0] === n)).map(n => [n, 0])]
     const common = commonEvents(filtered)
     const hasClusters = clusters.length && !(clusters.length === 1 && clusters[0][0] === "Unknown")
     const list = [
-      { id: "risk", title: "Risk", rank: "A", suit: "spade", icon: "warn", color: "#fe5f55", stat: `${Math.round(risk.risk * 100)}%`, caption: `overall risk: ${band}`,
-        body: <RiskDial events={filtered} /> },
-      { id: "levels", title: "Threat levels", rank: "K", suit: "heart", icon: "eye", color: "#ff9a00", stat: `${tc[4]} critical`, caption: `${filtered.length} events across 4 levels`,
-        body: <LevelTokens events={filtered} onPickTier={onPickTier} /> },
-      { id: "towers", title: "Over time", rank: "Q", suit: "diamond", icon: "clock", color: "#ffc83a", stat: `peak ${peak}`, caption: "events in the busiest time slot",
-        body: <IsoLens events={filtered} onPickTier={onPickTier} /> },
-      { id: "score", title: "Anomaly score", rank: "J", suit: "club", icon: "bolt", color: "#4bc292", stat: `${Math.round(avg * 100)}%`, caption: "average anomaly score",
-        body: <Box title="Anomaly score" icon="bolt" right="one square per event"><StepLine events={filtered} W={WIDE.W} H={WIDE.H} /></Box> },
-      { id: "board", title: "The board", rank: "10", suit: "spade", icon: "dice", color: "#0093ff", stat: busySrc, caption: `busiest log, ${busyN} events`,
-        body: <BoardLens events={filtered} onPickTier={onPickTier} /> },
-      { id: "heat", title: "Busy hours", rank: "9", suit: "heart", icon: "scroll", color: "#9b6bff", stat: `${String(peakHour).padStart(2, "0")}:00`, caption: "the hour with the most events",
-        body: <Box title="Busy hours" icon="clock" right="weekday x hour"><Heatmap events={filtered} W={WIDE.W} H={WIDE.H - 40} /></Box> },
+      { id: "risk", title: "Contamination", rank: "A", suit: "spade", icon: "warn", color: "#fd5f55", stat: `${Math.round(risk.risk * 100)}%`, caption: `${band}: ${tc[4]} critical of ${filtered.length} events`,
+        body: <RiskPanel events={filtered} /> },
+      { id: "score", title: "Anomalies", rank: "J", suit: "club", icon: "bolt", color: "#56a786", stat: `${base ? base.anomalies : 0} anomalies`, caption: base ? `baseline ${Math.round(base.med * 100)}%, anomalies are the HIGH and CRITICAL ones` : "no events yet",
+        body: <Box title="Anomaly score" icon="bolt"><ScoreScatter events={filtered} allEvents={events} /></Box> },
+      { id: "board", title: "The board", rank: "10", suit: "spade", icon: "dice", color: "#009cfd", stat: busySrc, caption: `busiest log, ${busyN} events`,
+        body: <BoardLens events={filtered} /> },
     ]
     if (hasClusters) {
-      list.push({ id: "clusters", title: "Behaviour", rank: "8", suit: "diamond", icon: "ml", color: "#ff9a00", stat: clusters[0][0].slice(0, 22), caption: `${clusters.length} behaviour groups`,
-        body: <Box title="Behaviour clusters" icon="ml"><ListBars rows={clusters} color="var(--purple)" /></Box> })
+      list.push({ id: "clusters", title: "Behaviour", rank: "8", suit: "diamond", icon: "ml", color: "#fa8f0b", stat: clusters[0][0].slice(0, 22), caption: `${clusters.length} behaviour groups`,
+        body: <Box title="Behaviour clusters" icon="ml" right="every pattern the model knows. dashed cards have not shown up yet"><CardGrid rows={patternRows} tint="#935adc" /></Box> })
     }
-    list.push({ id: "common", title: "Common events", rank: "7", suit: "club", icon: "scroll", color: "#4bc292", stat: common[0] ? common[0][0].slice(0, 22) : "none", caption: common[0] ? `seen ${common[0][1]} times` : "no events yet",
-      body: <Box title="Most common events" icon="scroll"><ListBars rows={common} color="var(--gold)" empty="No events yet." /></Box> })
+    list.push({ id: "common", title: "Common events", rank: "7", suit: "club", icon: "scroll", color: "#56a786", stat: common[0] ? common[0][0].slice(0, 22) : "none", caption: common[0] ? `seen ${common[0][1]} times` : "no events yet",
+      body: <Box title="Most common events" icon="scroll" right="what happens most often"><CardGrid rows={common} tint="#db9720" empty="No events yet." /></Box> })
     return list
-  }, [filtered, onPickTier])
+  }, [filtered])
 
   const open = cards.find(c => c.id === openId)
   useEffect(() => {
@@ -153,7 +147,7 @@ export default function GraphsPage({ events, onPickTier }) {
           {TIERS.slice().reverse().map(t => (
             <button key={t} aria-pressed={!hidden.has(t)} title={hidden.has(t) ? `Show ${TIER[t].name}` : `Hide ${TIER[t].name}`}
               className="pz-btn small" onClick={() => toggle(t)}
-              style={{ "--btn": hidden.has(t) ? "#4a5d5b" : TIER[t].color, "--btn-d": hidden.has(t) ? "#2f3d3c" : TIER[t].dark, color: hidden.has(t) ? "#8aa09e" : t === 2 ? "#1d2527" : "#fff", textDecoration: hidden.has(t) ? "line-through" : "none" }}>
+              style={{ "--btn": hidden.has(t) ? "#4f6367" : TIER[t].color, "--btn-d": hidden.has(t) ? "#3d4d51" : TIER[t].dark, color: hidden.has(t) ? "#a0b29d" : t === 2 ? "#1d2527" : "#fff", textDecoration: hidden.has(t) ? "line-through" : "none" }}>
               {TIER[t].name} {counts[t]}
             </button>
           ))}
@@ -161,7 +155,7 @@ export default function GraphsPage({ events, onPickTier }) {
 
         <Brush master={master} range={range} onChange={setRange} />
 
-        <div style={{ fontSize: 16, color: "#9fb4b2", marginBottom: 4 }}>
+        <div style={{ fontSize: 16, color: "#b5e8f2", marginBottom: 4 }}>
           Showing {filtered.length} of {events.length} events{range ? " in the chosen range" : ""}{hidden.size ? `, ${hidden.size} level${hidden.size > 1 ? "s" : ""} hidden` : ""}.
         </div>
 

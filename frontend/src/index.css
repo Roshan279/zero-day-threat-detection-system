@@ -9,33 +9,33 @@
    ───────────────────────────────────────────────────────────── */
 :root {
   --ink:      #1d2527;
-  --ink-2:    #2b3739;
-  --felt:     #44605e;
-  --felt-d:   #2f4745;
-  --felt-l:   #5d7c78;
-  --panel:    #34484c;
-  --panel-d:  #24363a;
-  --red:      #fe5f55;
-  --red-d:    #b83a33;
-  --blue:     #0093ff;
-  --blue-d:   #0063b3;
-  --orange:   #ff9a00;
-  --orange-d: #c46a00;
-  --gold:     #ffc83a;
-  --gold-d:   #c9922a;
-  --green:    #4bc292;
-  --green-d:  #2f8a63;
-  --purple:   #9b6bff;
-  --purple-d: #6a41c9;
-  --paper:    #f4efe4;
-  --paper-d:  #c9c3b6;
+  --ink-2:    #252f31;
+  --felt:     #4f7869;
+  --felt-d:   #3f6a5c;
+  --felt-l:   #5e7977;
+  --panel:    #4f6367;
+  --panel-d:  #3d4e52;
+  --red:      #fd5f55;
+  --red-d:    #c14139;
+  --blue:     #009cfd;
+  --blue-d:   #0081d3;
+  --orange:   #fa8f0b;
+  --orange-d: #d66b1b;
+  --gold:     #fdcf51;
+  --gold-d:   #db9720;
+  --green:    #56a786;
+  --green-d:  #459373;
+  --purple:   #935adc;
+  --purple-d: #7d51ae;
+  --paper:    #f7f1e4;
+  --paper-d:  #b7a88a;
   --pxfont:   'Jersey 15', 'Courier New', monospace;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {
-  background: #2a3b3a;
+  background: #252f31;
   color: #fff;
   font-family: var(--pxfont);
   font-size: 19px;
@@ -47,13 +47,13 @@ button { font-family: inherit; }
 ::-webkit-scrollbar-track { background: var(--panel-d); }
 ::-webkit-scrollbar-thumb { background: var(--ink); border-radius: 0; border: 2px solid var(--panel-d); }
 
-/* ── Animated felt table (a slow swirl, like a card-table shader) ── */
+/* ── The table: the burning ship at sea, slowly drifting, under a CRT scan-line pass ── */
 .pz-felt {
-  position: fixed; inset: 0; z-index: 0; overflow: hidden; background: #2b4a6a;
+  position: fixed; inset: 0; z-index: 0; overflow: hidden; background: #4a7fc0;
 }
-.pz-felt::before {  /* the island scene, slowly drifting */
+.pz-felt::before {
   content: ''; position: absolute; inset: -3%;
-  background: url('/bg-island.png') center / cover no-repeat;
+  background: url('/bg-bay.png') center / cover no-repeat;
   image-rendering: pixelated;
   animation: pz-felt-drift 40s ease-in-out infinite alternate;
 }
@@ -61,37 +61,41 @@ button { font-family: inherit; }
 .pz-felt::after {  /* darkening so cards and text stay readable */
   content: ''; position: absolute; inset: 0;
   background:
-    linear-gradient(90deg, rgba(8,20,24,.55) 0, rgba(8,20,24,.25) 30%, rgba(8,20,24,.25) 100%),
-    linear-gradient(180deg, rgba(8,20,24,.15), rgba(8,20,24,.45));
-  transition: background .6s;
+    linear-gradient(90deg, rgba(10,24,34,.5) 0, rgba(10,24,34,.2) 30%, rgba(10,24,34,.2) 100%),
+    linear-gradient(180deg, rgba(10,24,34,.14), rgba(10,24,34,.36));
 }
 @keyframes pz-felt-drift { 0% { transform: translate(-1.5%, -1%) scale(1); } 100% { transform: translate(1.5%, 1%) scale(1.03); } }
+/* CRT: fine scan lines over everything, never catching the mouse */
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.10) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.28) 100%);
+}
 @keyframes pz-spin { to { transform: rotate(360deg); } }
 
 /* ── Panels, insets, buttons ── */
 .pz-panel {
   background: var(--panel);
   border: 3px solid var(--ink);
-  border-radius: 10px;
-  box-shadow: 0 5px 0 var(--ink), inset 0 0 0 3px rgba(255,255,255,.05);
+  border-radius: 7px;
+  box-shadow: 0 5px 0 var(--ink), inset 0 0 0 3px rgba(255,255,255,.07);
   position: relative;
 }
 .pz-panel.paper { background: var(--paper); color: var(--ink); box-shadow: 0 5px 0 var(--ink), inset 0 0 0 3px rgba(0,0,0,.05); }
 .pz-inset {
-  background: #1b2829;
+  background: #2a3638;
   border: 3px solid var(--ink);
   border-radius: 8px;
   box-shadow: inset 0 4px 0 rgba(0,0,0,.4);
 }
-.pz-title { font-weight: 700; letter-spacing: .05em; text-shadow: 0 2px 0 rgba(0,0,0,.55); }
-.pz-label { color: #9fb4b2; font-size: 15px; letter-spacing: .12em; text-transform: uppercase; }
+.pz-title { font-weight: 700; letter-spacing: .07em; text-shadow: 0 2px 0 rgba(0,0,0,.55); }
+.pz-label { color: #b5e8f2; font-size: 15px; letter-spacing: .12em; text-transform: uppercase; }
 .pz-shadow-text { text-shadow: 0 2px 0 rgba(0,0,0,.6); }
 
 .pz-btn {
   --btn: var(--orange); --btn-d: var(--orange-d);
   font-family: var(--pxfont); font-weight: 700; color: #fff; letter-spacing: .04em;
   background: var(--btn);
-  border: 3px solid var(--ink); border-radius: 9px;
+  border: 3px solid var(--ink); border-radius: 6px;
   padding: 8px 14px; cursor: pointer; position: relative;
   box-shadow: 0 5px 0 var(--btn-d), 0 5px 0 3px var(--ink);
   text-shadow: 0 2px 0 rgba(0,0,0,.45);
@@ -104,7 +108,7 @@ button { font-family: inherit; }
 .pz-btn.red    { --btn: var(--red);    --btn-d: var(--red-d); }
 .pz-btn.green  { --btn: var(--green);  --btn-d: var(--green-d); }
 .pz-btn.gold   { --btn: var(--gold);   --btn-d: var(--gold-d); color: var(--ink); text-shadow: none; }
-.pz-btn.gray   { --btn: #6f8583;       --btn-d: #4a5d5b; }
+.pz-btn.gray   { --btn: #5e7977;       --btn-d: #4f6367; }
 .pz-btn.purple { --btn: var(--purple); --btn-d: var(--purple-d); }
 .pz-btn.big { padding: 12px 22px; font-size: 23px; }
 .pz-btn.small { padding: 4px 10px; font-size: 17px; }
@@ -121,7 +125,7 @@ button { font-family: inherit; }
 .pz-pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 2px 10px; border: 3px solid var(--ink); border-radius: 8px;
-  background: #1b2829; font-size: 18px; font-weight: 600;
+  background: #2a3638; font-size: 18px; font-weight: 600;
 }
 .pz-tag {
   display: inline-block; padding: 1px 8px; border: 2px solid var(--ink); border-radius: 6px;
@@ -131,7 +135,7 @@ button { font-family: inherit; }
 /* ── Joker tabs ── */
 .pz-joker {
   position: relative; width: 104px; height: 146px; flex: 0 0 auto;
-  background: linear-gradient(180deg, #ece6d6 0%, #d9d2c0 100%);
+  background: linear-gradient(180deg, #efe7d3 0%, #d8ccb0 100%);
   border: 3px solid var(--ink); border-radius: 10px; cursor: pointer; color: var(--ink);
   box-shadow: 0 6px 0 rgba(0,0,0,.45);
   display: flex; flex-direction: column; align-items: center; justify-content: space-between;
@@ -154,16 +158,16 @@ button { font-family: inherit; }
   --cw: 120px;
   position: absolute; left: 0; top: 0;
   width: var(--cw); height: calc(var(--cw) * 1.4);
-  background: var(--paper); color: var(--ink);
-  border: 3px solid var(--ink); border-radius: 8px;
-  box-shadow: 0 4px 0 rgba(0,0,0,.4);
+  background: #f8f4ec; color: var(--ink);
+  border: 2px solid #b4aea0; border-radius: calc(var(--cw) * .085);
+  box-shadow: 0 4px 0 rgba(0,0,0,.34);
   transform: translate(var(--x, 0px), calc(var(--y, 0px) + var(--lift, 0px))) rotate(var(--r, 0deg));
   transition: transform .22s cubic-bezier(.3,1.5,.5,1), box-shadow .2s, filter .2s;
   cursor: pointer; user-select: none;
   animation: pz-deal .5s cubic-bezier(.2,1.2,.4,1) backwards;
   animation-delay: var(--delay, 0s);
 }
-.pz-card:hover { --lift: -26px; z-index: 50 !important; box-shadow: 0 16px 0 rgba(0,0,0,.28); filter: brightness(1.04); }
+.pz-card:hover { --lift: -26px; z-index: 50 !important; box-shadow: 0 14px 0 rgba(0,0,0,.26); filter: brightness(1.03); }
 .pz-card.selected { --lift: -38px; z-index: 40 !important; box-shadow: 0 0 0 4px var(--gold), 0 18px 0 rgba(0,0,0,.3); }
 .pz-card.seen { filter: grayscale(.9) brightness(.8); }
 .pz-card.leaving { transition: transform .5s ease-in, opacity .5s; opacity: 0; --lift: -260px; }
@@ -172,22 +176,24 @@ button { font-family: inherit; }
   to   { opacity: 1; }
 }
 .pz-card .c-corner { position: absolute; left: 7px; top: 5px; display: flex; flex-direction: column; align-items: center; line-height: 1; font-weight: 700; font-size: 31px; }
-.pz-card .c-seal { position: absolute; right: 7px; top: 7px; width: 20px; height: 20px; border: 3px solid var(--ink); border-radius: 50%; background: var(--seal, var(--red)); box-shadow: inset -3px -3px 0 rgba(0,0,0,.25); }
-.pz-card .c-art { position: absolute; left: 0; right: 0; top: 40px; display: flex; justify-content: center; }
-.pz-card .c-title { position: absolute; left: 8px; right: 8px; top: 98px; font-size: 17px; font-weight: 600; line-height: 1.05; text-align: center; height: 28px; overflow: hidden; }
-.pz-card .c-score { position: absolute; left: 50%; bottom: -3px; translate: -50% 0; min-width: 52px; height: 28px; padding: 0 8px; display: flex; align-items: center; justify-content: center; background: var(--blue); color: #fff; border: 3px solid var(--ink); border-radius: 8px; font-weight: 700; font-size: 22px; text-shadow: 0 2px 0 rgba(0,0,0,.45); }
+.pz-card .c-corner.br { left: auto; top: auto; right: 7px; bottom: 5px; transform: rotate(180deg); }
+.pz-card .c-frame { position: absolute; display: flex; align-items: center; justify-content: center; border-radius: 5px;
+  background: color-mix(in srgb, var(--tc, #888) 24%, #f8f4ec); border: 2px solid color-mix(in srgb, var(--tc, #888) 55%, #f8f4ec); }
+.pz-card .c-title { position: absolute; display: flex; align-items: center; justify-content: center; left: 8px; right: 8px; top: 98px; font-weight: 600; line-height: 1.05; text-align: center; height: 28px; overflow: hidden; }
+.pz-card .c-score { position: absolute; left: 50%; bottom: 5px; line-height: 1; translate: -50% 0; min-width: 52px; height: 28px; padding: 0 8px; display: flex; align-items: center; justify-content: center; background: var(--blue); color: #fff; border: 2px solid var(--ink); border-radius: 6px; font-weight: 700; font-size: 22px; text-shadow: 0 2px 0 rgba(0,0,0,.45); }
 .pz-card .c-seen { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 33px; color: var(--red); rotate: -18deg; letter-spacing: .1em; }
 .pz-card.back {
-  background:
-    repeating-linear-gradient(90deg, transparent 0 6px, rgba(255,255,255,.18) 6px 9px),
-    repeating-linear-gradient(0deg, transparent 0 6px, rgba(255,255,255,.18) 6px 9px),
-    #b8567e;
+  background-color: #1f4a57;
+  background-image:
+    repeating-radial-gradient(circle at 28% 72%, transparent 0 8px, rgba(120,220,210,.34) 8px 10px),
+    repeating-radial-gradient(circle at 78% 24%, transparent 0 11px, rgba(60,150,170,.35) 11px 13px);
+  border: 4px solid #f8f4ec;
   cursor: default;
 }
 
 /* ── Tooltip (a card-description popup) ── */
 .pz-tip {
-  background: #f4efe4; color: var(--ink); border: 3px solid var(--ink); border-radius: 10px;
+  background: #f7f1e4; color: var(--ink); border: 3px solid var(--ink); border-radius: 10px;
   box-shadow: 0 5px 0 rgba(0,0,0,.4); padding: 8px 12px; position: relative;
   animation: pz-tip-in .18s cubic-bezier(.3,1.6,.5,1);
 }
@@ -212,7 +218,7 @@ button { font-family: inherit; }
 
 /* "ONE MORE SCAN" backdrop for the case summary */
 .pz-runbg {
-  position: absolute; inset: 0; overflow: hidden; background: #d0594e; z-index: 0;
+  position: absolute; inset: 0; overflow: hidden; background: #ec5148; z-index: 0;
 }
 .pz-runbg .row { position: absolute; left: -10%; width: 140%; white-space: nowrap; font-weight: 700; font-size: 123px; letter-spacing: .08em; color: rgba(255,255,255,.12); animation: pz-run 24s linear infinite; }
 .pz-runbg .row:nth-child(even) { animation-direction: reverse; }

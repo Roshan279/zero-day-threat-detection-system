@@ -10,16 +10,16 @@ import { tierOf } from "./px/cardModel"
 // Each feature is a card; each flagged event shows what drove its score.
 // ─────────────────────────────────────────────────────────────
 const FEATURE = {
-  hour_of_day:     { color: "#0093ff", icon: "clock" },
-  event_id_mod:    { color: "#ff9a00", icon: "key" },
-  log_source:      { color: "#4bc292", icon: "scroll" },
-  event_type_risk: { color: "#fe5f55", icon: "warn" },
+  hour_of_day:     { color: "#009cfd", icon: "clock" },
+  event_id_mod:    { color: "#fa8f0b", icon: "key" },
+  log_source:      { color: "#56a786", icon: "scroll" },
+  event_type_risk: { color: "#fd5f55", icon: "warn" },
 }
 const fc = (f) => FEATURE[f]?.color || "#8a9a9a"
 
 function Meter({ pct, color, delay = 0 }) {
   return (
-    <div style={{ height: 16, background: "#1b2829", border: "3px solid var(--ink)", borderRadius: 5, overflow: "hidden" }}>
+    <div style={{ height: 16, background: "#2a3638", border: "3px solid var(--ink)", borderRadius: 5, overflow: "hidden" }}>
       <div className="pz-bar" style={{ width: `${Math.max(2, Math.min(100, pct))}%`, height: "100%", background: color, boxShadow: "inset 0 -4px 0 rgba(0,0,0,.25), inset 0 2px 0 rgba(255,255,255,.25)", animationDelay: `${delay}s` }} />
     </div>
   )
@@ -62,8 +62,8 @@ function EventRow({ ev, selected, onClick }) {
       onMouseLeave={e => { e.currentTarget.style.transform = "none" }}
     >
       <span className="pz-tag" style={{ background: t.color, minWidth: 74, textAlign: "center", color: t.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: t.name === "MEDIUM" ? "none" : undefined }}>{t.name}</span>
-      <span style={{ minWidth: 64, color: "#9fb4b2" }}>#{ev.event_id ?? "?"}</span>
-      <span style={{ flex: 1, minWidth: 0, color: "#9fb4b2", fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.timestamp}</span>
+      <span style={{ minWidth: 64, color: "#b5e8f2" }}>#{ev.event_id ?? "?"}</span>
+      <span style={{ flex: 1, minWidth: 0, color: "#b5e8f2", fontSize: 17, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.timestamp}</span>
       {top && <span style={{ color: fc(top.feature), fontWeight: 600, minWidth: 120, whiteSpace: "nowrap" }}>{top.label}</span>}
       <span style={{ fontWeight: 700, color: t.color, minWidth: 44, textAlign: "right" }}>{ev.anomaly_score}%</span>
     </button>
@@ -76,7 +76,7 @@ function Detail({ ev, onAsk }) {
       <div className="pz-panel" style={{ padding: 18, textAlign: "center" }}>
         <PxIcon name="ml" size={46} style={{ margin: "0 auto 8px" }} />
         <div className="pz-title" style={{ fontSize: 23 }}>Pick an event</div>
-        <div style={{ color: "#9fb4b2", fontSize: 18, marginTop: 4 }}>See which features pushed its score up.</div>
+        <div style={{ color: "#b5e8f2", fontSize: 18, marginTop: 4 }}>See which features pushed its score up.</div>
       </div>
     )
   }

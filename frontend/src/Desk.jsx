@@ -90,7 +90,7 @@ export default function Desk({ cards, chips, mult, points, rail = 150, cardW = 1
                 <div className="pz-inset" style={{ padding: "8px 16px" }}><div className="pz-label">Cleared</div><div className="pz-title" style={{ fontSize: 34, color: "var(--green)" }}>{clearedCount}</div></div>
                 <div className="pz-inset" style={{ padding: "8px 16px" }}><div className="pz-label">Escalated</div><div className="pz-title" style={{ fontSize: 34, color: "var(--red)" }}>{escalated.length}</div></div>
               </div>
-              <div style={{ color: "#9fb4b2", fontSize: 19, marginBottom: 14 }}>
+              <div style={{ color: "#b5e8f2", fontSize: 19, marginBottom: 14 }}>
                 {escalated.length ? "Escalated cards stay in the case record. Ask Luffy for the next step." : "Everything was cleared. The hand is yours again."}
               </div>
               <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
@@ -151,7 +151,7 @@ export default function Desk({ cards, chips, mult, points, rail = 150, cardW = 1
 
               <div className="pz-fade-up" style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 18, animationDelay: ".5s" }}>
                 <Btn color="green" className="big" disabled={!!exit.id} onClick={() => active && decide(active, -1)}>{"<"} Clear</Btn>
-                <div style={{ textAlign: "center", fontSize: 18, color: "#cfe0dd", maxWidth: 210, lineHeight: 1.15 }}>
+                <div style={{ textAlign: "center", fontSize: 18, color: "#dcdcdc", maxWidth: 210, lineHeight: 1.15 }}>
                   Slide the card left to clear it, right to escalate it.
                 </div>
                 <Btn color="red" className="big" disabled={!!exit.id} onClick={() => active && decide(active, 1)}>Escalate {">"}</Btn>

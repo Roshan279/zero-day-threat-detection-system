@@ -29,6 +29,7 @@ import threading
 import time
 from datetime import datetime
 
+from typing import Optional
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -58,6 +59,7 @@ from response_executor import (
     check_and_warn_privileges, get_audit_log, is_admin,
 )
 from report_generator import generate_report_pdf, generate_management_pdf
+from scope import make_scope, scope_where
 from demo_mode import inject_demo_attack, clear_demo_events
 
 logging.basicConfig(level=logging.INFO)
@@ -319,13 +321,22 @@ def root():
 
 
 @app.get("/events")
-def get_events():
+def get_events(
+    tier: Optional[int] = Query(default=None, ge=1, le=4),
+    cluster: Optional[str] = None, entity: Optional[str] = None,
+    start: Optional[str] = None, end: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=1000),
+):
+    # With no filters this is exactly the old behaviour: the 100 highest-scoring events.
+    where, params = scope_where(make_scope(tier, cluster, entity, start, end))
     conn   = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM events ORDER BY anomaly_score DESC LIMIT 100")
+    cursor.execute(f"SELECT * FROM events{where} ORDER BY anomaly_score DESC LIMIT ?", params + [limit])
     events = [dict(e) for e in cursor.fetchall()]
+    cursor.execute(f"SELECT COUNT(*) AS n FROM events{where}", params)
+    total = cursor.fetchone()["n"]          # how many match in all, even if `limit` cut the list short
     conn.close()
-    return {"events": events}
+    return {"events": events, "total": total}
 
 
 @app.get("/stats")
@@ -922,8 +933,11 @@ def _get_forensic_significance(event: dict, raw: dict) -> str:
 # ─────────────────────────────────────────────────────────────
 
 @app.get("/report/pdf")
-def download_technical():
-    pdf  = generate_report_pdf()
+def download_technical(
+    tier: Optional[int] = Query(default=None, ge=1, le=4), cluster: Optional[str] = None,
+    entity: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None,
+):
+    pdf  = generate_report_pdf(make_scope(tier, cluster, entity, start, end))
     name = f"forensic_technical_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     return Response(
         content=pdf, media_type="application/pdf",
@@ -931,9 +945,31 @@ def download_technical():
     )
 
 
+class ReportBody(BaseModel):
+    events: list[dict]
+    scope: dict = {}
+
+
+# The same two reports, built from a list of events sent in the request. The app uses this for Demo data, whose
+# events do not exist in the database. Nothing is stored.
+@app.post("/report/pdf")
+def technical_from_events(body: ReportBody):
+    pdf = generate_report_pdf(body.scope, body.events)
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": "inline; filename=demo_technical.pdf"})
+
+
+@app.post("/report/management")
+def management_from_events(body: ReportBody):
+    pdf = generate_management_pdf(body.scope, body.events)
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": "inline; filename=demo_management.pdf"})
+
+
 @app.get("/report/management")
-def download_management():
-    pdf  = generate_management_pdf()
+def download_management(
+    tier: Optional[int] = Query(default=None, ge=1, le=4), cluster: Optional[str] = None,
+    entity: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None,
+):
+    pdf  = generate_management_pdf(make_scope(tier, cluster, entity, start, end))
     name = f"forensic_management_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     return Response(
         content=pdf, media_type="application/pdf",

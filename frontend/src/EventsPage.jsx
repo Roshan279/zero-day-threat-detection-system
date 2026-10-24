@@ -45,6 +45,7 @@ function HoverTip({ event }) {
 export default function EventsPage({
   events, filterTier, onFilterTier, selectedIds, onToggle, onClearSelection, seenIds,
   onScore, onMarkSeen, focusEvent, onFocus, onAskLuffy, onBlockEntity, onResetSeen, onScan, onReload,
+  pinId = null, onUnpin,
   rail = 150,
 }) {
   const [sortMode, setSortMode] = useState("score")
@@ -79,7 +80,10 @@ export default function EventsPage({
     return unseen.sort(by)
   }, [events, filterTier, seenIds, sortMode, desk])
 
-  const start = offset >= pool.length ? 0 : offset
+  // A card sent here from another page stays in the hand until you draw, sort or filter
+  const baseStart = offset >= pool.length ? 0 : offset
+  const pinIdx = pinId == null ? -1 : pool.findIndex(e => e.id === pinId)
+  const start = pinIdx >= 0 && (pinIdx < baseStart || pinIdx >= baseStart + handSize) ? Math.floor(pinIdx / handSize) * handSize : baseStart
   const hand = pool.slice(start, start + handSize)
   const remaining = Math.max(0, pool.length - hand.length)
 
@@ -87,15 +91,16 @@ export default function EventsPage({
   const totals = playTotals(selected)
 
   const redeal = () => setDealKey(k => k + 1)
-  const sortBy = (m) => { setSortMode(m); setOffset(0); redeal() }
+  const sortBy = (m) => { onUnpin?.(); setSortMode(m); setOffset(0); redeal() }
   const draw = () => {
+    onUnpin?.()
     if (pool.length <= handSize) { setOffset(0); redeal(); return }
     const next = start + handSize
     setOffset(next >= pool.length ? 0 : next)
     onClearSelection()
     redeal()
   }
-  const filter = (t) => { onFilterTier(t); setOffset(0); redeal() }
+  const filter = (t) => { onUnpin?.(); onFilterTier(t); setOffset(0); redeal() }
 
   // Investigate: the cards move to the desk and stay there until each one is decided
   const investigate = () => {
@@ -140,7 +145,7 @@ export default function EventsPage({
           <div className="pz-panel pz-bounce-in" style={{ alignSelf: "center", padding: 22, textAlign: "center", maxWidth: 380, marginBottom: 40 }}>
             <PxIcon name="check" size={52} style={{ margin: "0 auto 8px" }} />
             <div className="pz-title" style={{ fontSize: 28 }}>Your hand is empty</div>
-            <div style={{ color: "#9fb4b2", margin: "6px 0 14px" }}>
+            <div style={{ color: "#b5e8f2", margin: "6px 0 14px" }}>
               {seenIds.size ? "Every card here has been reviewed." : "No events match this filter yet."}
             </div>
             {seenIds.size > 0 && <Btn color="blue" onClick={onResetSeen}>Bring back reviewed cards</Btn>}

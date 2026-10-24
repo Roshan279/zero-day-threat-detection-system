@@ -1,5 +1,6 @@
 import { getHumanDescription, hasEventTemplate } from "./Humanlog"
 import { sanitizeField } from "./sanitize"
+import { friendlyEventName } from "./eventNames"
 import { TIER } from "./px/cardModel"
 
 // ─────────────────────────────────────────────────────────────
@@ -91,7 +92,7 @@ export function riskOf(events) {
 }
 
 export function commonEvents(events, limit = 8) {
-  const counts = {}
+  const counts = {}, notes = {}
   events.forEach(e => {
     try {
       const raw = JSON.parse(e.raw_data || "{}")
@@ -99,15 +100,15 @@ export function commonEvents(events, limit = 8) {
       if (eid == null) return
       let key
       if (!hasEventTemplate(eid)) {
-        const src = sanitizeField(e.source || raw.SourceName || "")
-        key = `#${eid}${src ? " · " + src.slice(0, 14) : ""}`
+        key = friendlyEventName(sanitizeField(raw.SourceName || e.source || ""), eid, sanitizeField(String(raw.Data ?? "").split("|")[0]))
       } else {
         key = getHumanDescription(e).split(":")[0].trim().slice(0, 32)
       }
       counts[key] = (counts[key] || 0) + 1
+      if (!notes[key]) notes[key] = `${sanitizeField(raw.SourceName || e.source || "log").slice(0, 22)} · #${eid}`   // the raw ID, for anyone who wants to look it up
     } catch { /* skip */ }
   })
-  return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, limit)
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, limit).map(([k, n]) => [k, n, notes[k]])
 }
 
 export function clusterCounts(events, limit = 6) {
@@ -131,4 +132,31 @@ export function heatGrid(events) {
     if (v > max) max = v
   })
   return { grid, max }
+}
+
+const median = (a) => {
+  const s = [...a].sort((x, y) => x - y)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+// An event is an ANOMALY when the backend flagged it: threat level HIGH or CRITICAL (score above 65%), the same
+// rule the rest of the app uses, so this chart always agrees with the piles and the counts.
+export const FLAGGED_TIER = 3
+export const isFlagged = (e) => (e.threat_tier || 1) >= FLAGGED_TIER
+
+// The BASELINE is the typical range of ordinary activity: the median score of the events the backend did NOT flag,
+// plus or minus two robust deviations (MAD based). It is worked out from `reference` (all events, not just the ones
+// on screen), so zooming or hiding a level never moves it. When nothing is unflagged (a real log where everything
+// scored high) it falls back to all of the reference events.
+export function baselineOf(reference, events = reference) {
+  const calm = reference.filter(e => !isFlagged(e))
+  const basis = (calm.length >= 5 ? calm : reference).map(e => e.anomaly_score || 0)
+  if (!basis.length) return null
+  const med = median(basis)
+  const mad = median(basis.map(s => Math.abs(s - med)))
+  const half = Math.max(2 * 1.4826 * mad, 0.02)
+  const fromCalm = calm.length >= 5
+  // ordinary activity never reaches into the flagged zone; the all-events fallback has no such limit
+  return { med, lo: Math.max(0, med - half), hi: Math.min(fromCalm ? 0.65 : 1, med + half), fromCalm, anomalies: events.filter(isFlagged).length }
 }

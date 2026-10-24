@@ -70,7 +70,7 @@ export default function ChatPage({ history, input, setInput, send, loading, mood
 
         {loading && (
           <div style={{ alignSelf: "flex-start", display: "flex", gap: 10, alignItems: "flex-end" }}>
-            <LuffyAvatar mood="thinking" size={46} color="#ffc83a" />
+            <LuffyAvatar mood="thinking" size={46} color="#fdcf51" />
             <div className="pz-panel paper" style={{ padding: "12px 16px", display: "flex", gap: 6 }} aria-label="Luffy is thinking">
               {[0, 1, 2].map(i => <span key={i} style={{ width: 10, height: 10, background: "var(--ink)", display: "block", animation: `pz-dots .8s ${i * 0.15}s infinite` }} />)}
             </div>

@@ -13,7 +13,7 @@ const INK = "#1d2527"
 const CRUISE = 200            // deg/s: one turn per 1.8s, and 1 second of track per second of turning
 const SCRUB_THROTTLE = 200    // ms between seeks while turning the disc
 const PREFS_KEY = "jukebox_prefs_yt"
-const MOOD_COLOR = { calm: "#4bc292", tense: "#fe5f55" }
+const MOOD_COLOR = { calm: "#56a786", tense: "#fd5f55" }
 
 // Real, public streams as starting points. Replace them with anything you like inside the Jukebox.
 const DEFAULT_CALM = import.meta.env.VITE_YT_CALM || "https://www.youtube.com/watch?v=jfKfPfyJRdk"
@@ -38,12 +38,12 @@ function buildDisc() {
       if (x < N) {
         const dx = x - C, dy = y - C, r = Math.hypot(dx, dy)
         if (r <= C + 0.4) {
-          if (r <= 1.3) color = "#1b2829"
+          if (r <= 1.3) color = "#2a3638"
           else if (r <= 7.2) color = (dx >= 3 && dx <= 4.5 && dy >= -5 && dy <= -3) ? "#fff" : "var(--jb-accent)"
           else if (r > C - 1) color = "#0d1315"
           else {
             const streak = Math.abs(Math.atan2(dy, dx) + Math.PI / 4) < 0.28 && r > 9
-            color = streak ? "#4a5f62" : Math.floor(r) % 2 ? "#232f31" : "#2c3b3e"
+            color = streak ? "#4a5f62" : Math.floor(r) % 2 ? "#232f31" : "#3d4d51"
           }
         }
       }
@@ -73,9 +73,9 @@ function Tonearm({ down }) {
   return (
     <svg viewBox="0 0 24 56" width="46" height="108" shapeRendering="crispEdges" aria-hidden="true"
       style={{ position: "absolute", right: -26, top: -8, pointerEvents: "none", transformOrigin: "75% 12%", transition: "transform .5s steps(6)", transform: `rotate(${down ? 10 : -14}deg)` }}>
-      <rect x="15" y="1" width="9" height="9" fill={INK} /><rect x="16" y="2" width="7" height="7" fill="#cfe0dd" /><rect x="18" y="4" width="3" height="3" fill="#6f8583" />
-      <rect x="18" y="10" width="3" height="32" fill={INK} /><rect x="19" y="10" width="1" height="32" fill="#9fb4b2" />
-      <rect x="7" y="40" width="14" height="3" fill={INK} /><rect x="8" y="41" width="12" height="1" fill="#9fb4b2" />
+      <rect x="15" y="1" width="9" height="9" fill={INK} /><rect x="16" y="2" width="7" height="7" fill="#dcdcdc" /><rect x="18" y="4" width="3" height="3" fill="#5e7977" />
+      <rect x="18" y="10" width="3" height="32" fill={INK} /><rect x="19" y="10" width="1" height="32" fill="#b5e8f2" />
+      <rect x="7" y="40" width="14" height="3" fill={INK} /><rect x="8" y="41" width="12" height="1" fill="#b5e8f2" />
       <rect x="3" y="40" width="7" height="12" fill={INK} /><rect x="4" y="41" width="5" height="10" fill="var(--jb-accent)" />
     </svg>
   )
@@ -198,7 +198,7 @@ export default function Jukebox({ mood = "calm" }) {
     <>
       <style>{`
         .jb-root { --jb-accent: ${accent}; }
-        .jb-disc { position: relative; width: 112px; height: 112px; border-radius: 50%; touch-action: none; user-select: none; box-shadow: 0 6px 0 rgba(0,0,0,.4), 0 0 0 4px ${INK}; }
+        .jb-disc { position: relative; width: 112px; height: 112px; border-radius: 50%; touch-action: none; user-select: none; border: 4px solid ${INK}; }
         .jb-disc:active { cursor: grabbing !important; }
         .jb-bars { display: inline-flex; gap: 3px; align-items: flex-end; height: 18px; }
         .jb-bars i { width: 4px; height: 4px; background: currentColor; animation: jb-eq .7s steps(4) infinite; animation-play-state: paused; }
@@ -206,7 +206,7 @@ export default function Jukebox({ mood = "calm" }) {
         .jb-bars i:nth-child(2) { animation-delay: -.15s } .jb-bars i:nth-child(3) { animation-delay: -.3s } .jb-bars i:nth-child(4) { animation-delay: -.45s } .jb-bars i:nth-child(5) { animation-delay: -.6s }
         @keyframes jb-eq { 0%, 100% { height: 4px } 50% { height: 18px } }
         @media (prefers-reduced-motion: reduce) { .jb-bars i { animation: none !important; height: 10px } }
-        .jb-range { -webkit-appearance: none; appearance: none; height: 12px; background: #1b2829; border: 3px solid ${INK}; border-radius: 4px; width: 100%; }
+        .jb-range { -webkit-appearance: none; appearance: none; height: 12px; background: #2a3638; border: 3px solid ${INK}; border-radius: 4px; width: 100%; }
         .jb-range::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 18px; background: var(--gold); border: 3px solid ${INK}; }
         .jb-range::-moz-range-thumb { width: 8px; height: 14px; background: var(--gold); border: 3px solid ${INK}; border-radius: 0; }
         .jb-input { font: inherit; padding: 4px 8px; border: 3px solid ${INK}; border-radius: 6px; background: var(--paper); color: ${INK}; box-sizing: border-box; }
@@ -215,7 +215,7 @@ export default function Jukebox({ mood = "calm" }) {
       <div className="jb-root">
         <button className="pz-btn gold small" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-label="Jukebox"
           title={playing ? `${yt.info.title}` : "Jukebox (YouTube)"}
-          style={{ position: "fixed", right: 44, top: "42%", zIndex: 60, padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+          style={{ position: "fixed", right: 44, top: 420, zIndex: 60, padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
           <PxIcon name="bolt" size={22} />
           <span className="jb-bars" data-on={playing} aria-hidden="true"><i /><i /><i /><i /><i /></span>
         </button>
@@ -225,8 +225,8 @@ export default function Jukebox({ mood = "calm" }) {
             visibility: open ? "visible" : "hidden", pointerEvents: open ? "auto" : "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span className="pz-title" style={{ fontSize: 22 }}>Jukebox</span>
-            <span className="pz-tag" style={{ background: accent, color: mood === "tense" ? "#fff" : INK, fontSize: 14 }}>{mood}</span>
-            <span style={{ fontSize: 15, color: "#9fb4b2" }}>{status}</span>
+            <span style={{ fontSize: 15, color: accent }}>{mood}</span>
+            <span style={{ fontSize: 15, color: "#b5e8f2" }}>{status}</span>
             <button className="pz-btn gray small" style={{ marginLeft: "auto" }} aria-label="Close jukebox" onClick={() => setOpen(false)}>X</button>
           </div>
 
@@ -239,13 +239,13 @@ export default function Jukebox({ mood = "calm" }) {
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: accent }}>
                 <span className="jb-bars" data-on={playing} aria-hidden="true"><i /><i /><i /><i /><i /></span>
-                <span style={{ fontSize: 15, letterSpacing: ".08em", color: "#9fb4b2" }}>NOW PLAYING</span>
+                <span style={{ fontSize: 15, letterSpacing: ".08em", color: "#b5e8f2" }}>NOW PLAYING</span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1, margin: "6px 0 2px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" }}>
                 {yt.info.title || "Nothing yet"}
               </div>
-              <div style={{ fontSize: 16, color: "#9fb4b2", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{yt.info.author || "Paste a link below"}</div>
-              <div style={{ fontSize: 14, color: "#7f9694", marginTop: 4 }}>{yt.info.live ? "LIVE" : playing ? "33 rpm" : "0 rpm"}</div>
+              <div style={{ fontSize: 16, color: "#b5e8f2", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{yt.info.author || "Paste a link below"}</div>
+              <div style={{ fontSize: 14, color: "#a0b29d", marginTop: 4 }}>{yt.info.live ? "LIVE" : playing ? "33 rpm" : "0 rpm"}</div>
             </div>
           </div>
 
@@ -256,10 +256,10 @@ export default function Jukebox({ mood = "calm" }) {
             onPointerMove={(ev) => { if (barDrag.current) seekTo(ev.clientX, false) }}
             onPointerUp={(ev) => { if (barDrag.current) { barDrag.current = false; seekTo(ev.clientX, true) } }}
             onPointerCancel={() => { barDrag.current = false; yt.holdProgress(false) }}
-            style={{ height: 18, background: "#1b2829", border: `3px solid ${INK}`, borderRadius: 6, overflow: "hidden", cursor: canScrub ? "pointer" : "default", touchAction: "none", outlineOffset: 3 }}>
-            <div style={{ width: yt.info.live ? "100%" : `${pct}%`, height: "100%", background: accent, boxShadow: "inset 0 -5px 0 rgba(0,0,0,.25), inset 0 3px 0 rgba(255,255,255,.25)", opacity: yt.info.live ? 0.5 : 1 }} />
+            style={{ height: 18, background: "#2a3638", border: `3px solid ${INK}`, borderRadius: 6, overflow: "hidden", cursor: canScrub ? "pointer" : "default", touchAction: "none", outlineOffset: 3 }}>
+            <div style={{ width: yt.info.live ? "100%" : `${pct}%`, height: "100%", background: accent, opacity: yt.info.live ? 0.5 : 1 }} />
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, color: "#9fb4b2", margin: "3px 0 10px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, color: "#b5e8f2", margin: "3px 0 10px" }}>
             <span>{fmt(yt.position)}</span><span>{yt.info.live ? "LIVE" : fmt(yt.duration)}</span>
           </div>
 
@@ -275,10 +275,10 @@ export default function Jukebox({ mood = "calm" }) {
           </label>
 
           {/* the screen: YouTube asks for a visible player of at least 200 x 200 */}
-          <div style={{ position: "relative", border: `4px solid ${INK}`, borderRadius: 8, background: "#000", overflow: "hidden", width: 320, height: 200, margin: "0 auto 10px", boxShadow: "inset 0 0 0 2px #3a4a4c" }}>
+          <div style={{ position: "relative", border: `4px solid ${INK}`, borderRadius: 8, background: "#000", overflow: "hidden", width: 320, height: 200, margin: "0 auto 10px" }}>
             <div ref={mount} style={{ width: 320, height: 200 }} />
             {!yt.info.title && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 16, fontSize: 18, color: "#9fb4b2", background: "#101819", pointerEvents: "none" }}>
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 16, fontSize: 18, color: "#b5e8f2", background: "#141c1e", pointerEvents: "none" }}>
                 {yt.ready ? "Paste a YouTube link below, or turn on Mood DJ." : "Loading player..."}
               </div>
             )}
@@ -294,9 +294,9 @@ export default function Jukebox({ mood = "calm" }) {
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
               <input type="checkbox" checked={prefs.dj} onChange={(e) => setPref({ dj: e.target.checked })} style={{ width: 18, height: 18 }} />
               Mood DJ
-              <span style={{ fontWeight: 400, fontSize: 15, color: "#9fb4b2" }}>now: {mood}</span>
+              <span style={{ fontWeight: 400, fontSize: 15, color: "#b5e8f2" }}>now: {mood}</span>
             </label>
-            <div style={{ fontSize: 15, color: "#9fb4b2", margin: "2px 0 6px" }}>Calm music normally, tense music while a CRITICAL event is open.</div>
+            <div style={{ fontSize: 15, color: "#b5e8f2", margin: "2px 0 6px" }}>Calm music normally, tense music while a CRITICAL event is open.</div>
             {[["calm", "Calm link"], ["tense", "Tense link"]].map(([k, ph]) => (
               <input key={k} className="jb-input" value={prefs[k]} onChange={(e) => setPref({ [k]: e.target.value })} placeholder={ph} aria-label={ph}
                 style={{ width: "100%", fontSize: 15, padding: "3px 8px", marginBottom: 6, borderColor: prefs[k] && !parseSource(prefs[k]) ? "var(--red)" : INK }} />

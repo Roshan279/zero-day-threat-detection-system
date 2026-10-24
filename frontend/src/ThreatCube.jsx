@@ -48,10 +48,10 @@ export default function ThreatCube({ events = [], onOpen }) {
       `}</style>
       <svg viewBox={`0 -70 ${W} ${H + 70}`} style={{ width: "100%", display: "block", overflow: "visible" }} role="group" aria-label="Threat layers">
         {/* cube frame */}
-        <polygon points={pts([iso(0, 0, 3 * GAP + 40), iso(1, 0, 3 * GAP + 40), iso(1, 1, 3 * GAP + 40), iso(0, 1, 3 * GAP + 40)])} fill="none" stroke="#5f7f86" strokeWidth="2" strokeDasharray="4 4" />
-        <polyline points={pts([iso(0, 1, 3 * GAP + 40), iso(0, 1, -40), iso(1, 1, -40), iso(1, 0, -40), iso(1, 0, 3 * GAP + 40)])} fill="none" stroke="#5f7f86" strokeWidth="2" strokeDasharray="4 4" />
-        <line x1={iso(1, 1, 3 * GAP + 40)[0]} y1={iso(1, 1, 3 * GAP + 40)[1]} x2={iso(1, 1, -40)[0]} y2={iso(1, 1, -40)[1]} stroke="#5f7f86" strokeWidth="2" strokeDasharray="4 4" />
-        <polygon points={pts([iso(0, 0, -40), iso(1, 0, -40), iso(1, 1, -40), iso(0, 1, -40)])} fill="rgba(0,0,0,.25)" stroke="#5f7f86" strokeWidth="2" />
+        <polygon points={pts([iso(0, 0, 3 * GAP + 40), iso(1, 0, 3 * GAP + 40), iso(1, 1, 3 * GAP + 40), iso(0, 1, 3 * GAP + 40)])} fill="none" stroke="#5e7977" strokeWidth="2" strokeDasharray="4 4" />
+        <polyline points={pts([iso(0, 1, 3 * GAP + 40), iso(0, 1, -40), iso(1, 1, -40), iso(1, 0, -40), iso(1, 0, 3 * GAP + 40)])} fill="none" stroke="#5e7977" strokeWidth="2" strokeDasharray="4 4" />
+        <line x1={iso(1, 1, 3 * GAP + 40)[0]} y1={iso(1, 1, 3 * GAP + 40)[1]} x2={iso(1, 1, -40)[0]} y2={iso(1, 1, -40)[1]} stroke="#5e7977" strokeWidth="2" strokeDasharray="4 4" />
+        <polygon points={pts([iso(0, 0, -40), iso(1, 0, -40), iso(1, 1, -40), iso(0, 1, -40)])} fill="rgba(0,0,0,.25)" stroke="#5e7977" strokeWidth="2" />
 
         {ORDER.map((t, idx) => {
           const tier = TIER[t]
@@ -89,10 +89,10 @@ export default function ThreatCube({ events = [], onOpen }) {
         })}
 
         {/* timeline rail */}
-        <line x1="490" y1="30" x2="490" y2="430" stroke="#5f7f86" strokeWidth="3" />
-        {Array.from({ length: 19 }, (_, i) => <line key={i} x1="490" x2={i % 6 === 0 ? 506 : 498} y1={30 + i * 22.2} y2={30 + i * 22.2} stroke="#5f7f86" strokeWidth="2" />)}
+        <line x1="490" y1="30" x2="490" y2="430" stroke="#5e7977" strokeWidth="3" />
+        {Array.from({ length: 19 }, (_, i) => <line key={i} x1="490" x2={i % 6 === 0 ? 506 : 498} y1={30 + i * 22.2} y2={30 + i * 22.2} stroke="#5e7977" strokeWidth="2" />)}
         {ORDER.slice().reverse().map((t, i) => (
-          <text key={t} x="512" y={44 + i * 110} fontFamily="var(--pxfont)" fontSize="19" fill={hover === t ? "#fff" : "#8fb0b0"}>{TIER[t].name}</text>
+          <text key={t} x="512" y={44 + i * 110} fontFamily="var(--pxfont)" fontSize="19" fill={hover === t ? "#fff" : "#b5e8f2"}>{TIER[t].name}</text>
         ))}
         {markerY != null && (
           <g style={{ transition: "transform .25s steps(5)" }}>
@@ -109,12 +109,12 @@ export default function ThreatCube({ events = [], onOpen }) {
               <span className="pz-tag" style={{ background: TIER[hover].color, color: hover === 2 ? "#1d2527" : "#fff" }}>{TIER[hover].name}</span>
               <span style={{ fontSize: 22 }}>{layers[hover].length} events</span>
             </div>
-            <div style={{ fontSize: 17, color: "#9fb4b2", marginTop: 4 }}>
+            <div style={{ fontSize: 17, color: "#b5e8f2", marginTop: 4 }}>
               {top ? `Top score ${top.anomaly_score}%. Click to open.` : "Nothing on this layer."}
             </div>
           </>
         ) : (
-          <div style={{ fontSize: 18, color: "#cfe0dd" }}>Hover a layer. Each square is one event.</div>
+          <div style={{ fontSize: 18, color: "#dcdcdc" }}>Hover a layer. Each square is one event.</div>
         )}
       </div>
     </div>

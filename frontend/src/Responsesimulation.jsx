@@ -60,12 +60,12 @@ function Row({ item }) {
         aria-expanded={open}
       >
         <span className="pz-tag" style={{ background: t.color, minWidth: 74, textAlign: "center", color: t.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: t.name === "MEDIUM" ? "none" : undefined }}>{t.name}</span>
-        <span style={{ minWidth: 150, color: "#9fb4b2", fontSize: 17 }}>{item.timestamp}</span>
-        <span style={{ minWidth: 56, color: "#cfe0dd" }}>#{item.event_id ?? "?"}</span>
-        <span style={{ flex: 1, minWidth: 0, color: item.phase ? "var(--red)" : "#9fb4b2", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.phase || item.source || "-"}</span>
+        <span style={{ minWidth: 150, color: "#b5e8f2", fontSize: 17 }}>{item.timestamp}</span>
+        <span style={{ minWidth: 56, color: "#dcdcdc" }}>#{item.event_id ?? "?"}</span>
+        <span style={{ flex: 1, minWidth: 0, color: item.phase ? "var(--red)" : "#b5e8f2", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.phase || item.source || "-"}</span>
         <span style={{ fontWeight: 700, color: t.color, minWidth: 44 }}>{item.anomaly_score}%</span>
         <span className="pz-tag" style={{ background: t.dark, minWidth: 130, textAlign: "center" }}>{r.label}</span>
-        <span style={{ color: "#9fb4b2", width: 14 }}>{open ? "-" : "+"}</span>
+        <span style={{ color: "#b5e8f2", width: 14 }}>{open ? "-" : "+"}</span>
       </button>
       {open && (
         <div className="pz-inset pz-bounce-in" style={{ margin: "6px 0 0 14px", padding: "10px 14px", display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -100,7 +100,7 @@ export default function ResponseSimulation() {
   return (
     <div style={{ height: "100%", overflowY: "auto", padding: "0 160px 24px 20px" }}>
       <div className="pz-label" style={{ marginBottom: 2 }}>Active mitigation strategy</div>
-      <div style={{ fontSize: 18, color: "#cfe0dd", marginBottom: 10 }}>{data.spec_note} Click a card to filter the list.</div>
+      <div style={{ fontSize: 18, color: "#dcdcdc", marginBottom: 10 }}>{data.spec_note} Click a card to filter the list.</div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
         {rules.map((rule, i) => (
           <RuleCard key={rule.tier} rule={rule} i={i} active={filter === rule.tier} count={data.tier_summary[rule.tier] || 0} onClick={() => setFilter(filter === rule.tier ? 0 : rule.tier)} />

@@ -272,7 +272,7 @@ export default function GraphDeck({ cards, onOpen }) {
         {cards.map((card, index) => {
           const isTop = order.indexOf(index) === 0
           const red = card.suit === "heart" || card.suit === "diamond"
-          const col = red ? "#d6453d" : INK
+          const col = red ? "#ec2d33" : INK
           return (
             <div key={card.id} ref={(n) => { nodes.current[index] = n }}
               className="gd-card" data-state="rest" role="button" tabIndex={isTop ? 0 : -1} aria-hidden={!isTop}
@@ -321,41 +321,37 @@ export default function GraphDeck({ cards, onOpen }) {
         </span>
         <button className="pz-btn gray small" aria-label="Next card" onClick={() => cycle(1)}>&rsaquo;</button>
       </div>
-      <div style={{ fontSize: 15, color: "#9fb4b2", marginTop: 8 }}>drag or flick the top card away. click it to open the chart.</div>
+      <div style={{ fontSize: 15, color: "#b5e8f2", marginTop: 8 }}>drag or flick the top card away. click it to open the chart.</div>
     </div>
   )
 }
 
 export const DECK_CSS = `
 .gd-card { position: absolute; inset: 0; transform-origin: bottom; touch-action: pan-y; user-select: none; will-change: transform; outline: none; overflow: hidden;
-  color: ${INK}; border: 5px solid ${INK}; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;
-  background: radial-gradient(circle at 50% 38%, #fffaf0 0, var(--paper) 62%, #e6dcc6 100%);
-  box-shadow: 0 8px 0 rgba(0,0,0,.38), inset 0 0 0 3px rgba(255,255,255,.55); transition: box-shadow .2s; }
-.gd-card::before { content: ""; position: absolute; inset: 7px; border: 2px dashed rgba(29,37,39,.28); border-radius: 12px; pointer-events: none; }
-.gd-card[tabindex="0"]::after { content: ""; position: absolute; inset: -40% -60%; pointer-events: none;
-  background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.55) 50%, transparent 58%); animation: gd-shine 3.6s steps(18) infinite; }
-@keyframes gd-shine { 0%, 55% { transform: translateX(-60%) } 100% { transform: translateX(60%) } }
+  color: ${INK}; border: 3px solid #b4aea0; border-radius: 22px; padding: 14px 16px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background-color: #f8f4ec;
+  box-shadow: 0 8px 0 rgba(0,0,0,.34); }
+.gd-card::before { content: ""; position: absolute; inset: 9px; border: 0; border-radius: 0; pointer-events: none; }
 .gd-card[tabindex="0"] { cursor: grab; }
-.gd-card[data-state="drag"] { cursor: grabbing; box-shadow: 0 26px 0 rgba(0,0,0,.28), inset 0 0 0 3px rgba(255,255,255,.55); }
-.gd-card[data-state="fly"] { box-shadow: 0 26px 0 rgba(0,0,0,.28), inset 0 0 0 3px rgba(255,255,255,.55); }
-.gd-card:focus-visible { box-shadow: 0 0 0 5px var(--gold), 0 8px 0 rgba(0,0,0,.38); }
+.gd-card[data-state="drag"] { cursor: grabbing; box-shadow: 0 24px 0 rgba(0,0,0,.26); }
+.gd-card:focus-visible { outline: 4px solid var(--gold); outline-offset: 2px; }
 .gd-corner { position: absolute; display: flex; flex-direction: column; align-items: center; line-height: 1; z-index: 2; }
 .gd-corner.tl { left: 14px; top: 12px; }
 .gd-corner.br { right: 14px; bottom: 12px; transform: rotate(180deg); }
 .gd-rank { font-family: var(--pxfont); font-size: 34px; font-weight: 700; }
 .gd-mark { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%); opacity: .07; pointer-events: none; }
-.gd-title { height: 66px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 28px; line-height: 1; text-shadow: none; color: ${INK}; text-align: center; padding: 0 56px; z-index: 1; }
-.gd-art { position: relative; flex: 1; min-height: 0; width: 100%; margin: 0; border: 4px solid ${INK}; border-radius: 12px; overflow: hidden; z-index: 1;
+.gd-title { height: 66px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 28px; line-height: 1; color: ${INK}; text-align: center; padding: 0 56px; z-index: 1; }
+.gd-art { position: relative; box-shadow: inset 0 -8px 0 rgba(0,0,0,.18), inset 0 4px 0 rgba(255,255,255,.22); flex: 1; min-height: 0; width: 100%; margin: 0; border: 3px solid rgba(29,37,39,.55); border-radius: 8px; overflow: hidden; z-index: 1;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
-  background: radial-gradient(circle at 50% 30%, rgba(255,255,255,.4), transparent 60%), repeating-linear-gradient(45deg, rgba(255,255,255,.14) 0 8px, transparent 8px 16px), var(--c);
-  box-shadow: inset 0 -10px 0 rgba(0,0,0,.18), inset 0 4px 0 rgba(255,255,255,.3); }
-.gd-icon { filter: drop-shadow(0 5px 0 rgba(0,0,0,.35)); animation: gd-bob 2.4s steps(4) infinite; }
+  background: var(--c);
+  }
+.gd-icon { animation: gd-bob 2.4s steps(4) infinite; }
 @keyframes gd-bob { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-5px) } }
 .gd-stat { font-family: var(--pxfont); font-size: 46px; line-height: 1; color: #fff; text-align: center; padding: 0 12px; overflow-wrap: anywhere;
-  text-shadow: 0 4px 0 ${INK}, 3px 0 0 ${INK}, -3px 0 0 ${INK}, 0 -3px 0 ${INK}; }
-.gd-spark { position: absolute; width: 8px; height: 8px; background: #fff; box-shadow: 0 0 0 2px ${INK}; animation: gd-twinkle 1.8s steps(2) infinite; }
+  -webkit-text-stroke: 3px #1d2527; paint-order: stroke fill }
+.gd-spark { position: absolute; width: 8px; height: 8px; background: #fff; outline: 2px solid ${INK}; animation: gd-twinkle 1.8s steps(2) infinite; }
 @keyframes gd-twinkle { 0%, 100% { opacity: 1; transform: scale(1) } 50% { opacity: .25; transform: scale(.6) } }
-.gd-foot { z-index: 1; text-align: center; font-size: 18px; line-height: 1.1; color: #4a5a59; padding: 0 56px; height: 66px; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.gd-hint { display: inline-block; margin-top: 6px; font-size: 14px; padding: 1px 10px; border: 2px solid ${INK}; border-radius: 99px; background: var(--gold); color: ${INK}; }
-@media (prefers-reduced-motion: reduce) { .gd-card::after, .gd-icon, .gd-spark { animation: none } }
+.gd-foot { z-index: 1; text-align: center; font-size: 18px; line-height: 1.1; color: #4f6367; padding: 0 56px; height: 66px; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.gd-hint { display: block; margin-top: 6px; font-size: 14px; color: #5e7977; }
+@media (prefers-reduced-motion: reduce) { .gd-icon, .gd-spark { animation: none } }
 `

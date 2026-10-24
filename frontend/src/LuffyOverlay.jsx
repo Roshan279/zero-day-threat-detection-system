@@ -15,12 +15,12 @@ const LUFFY_LINES = {
 
 // color: the tag color used on the speech bubble and the status tag
 export const MOOD_CONFIG = {
-  idle:     {color:"#4bc292",label:"MONITORING"},
-  alert:    {color:"#ff9a00",label:"ON ALERT"  },
-  thinking: {color:"#ffc83a",label:"THINKING"  },
-  happy:    {color:"#4bc292",label:"ALL CLEAR" },
-  angry:    {color:"#fe5f55",label:"CRITICAL"  },
-  goofy:    {color:"#9b6bff",label:"CASE SOLVED"},
+  idle:     {color:"#56a786",label:"MONITORING"},
+  alert:    {color:"#fa8f0b",label:"ON ALERT"  },
+  thinking: {color:"#fdcf51",label:"THINKING"  },
+  happy:    {color:"#56a786",label:"ALL CLEAR" },
+  angry:    {color:"#fd5f55",label:"CRITICAL"  },
+  goofy:    {color:"#935adc",label:"CASE SOLVED"},
   sleepy:   {color:"#8a9a9a",label:"OFFLINE"   },
 }
 
@@ -151,7 +151,7 @@ export default function LuffyOverlay({ ariaState="idle", externalMessage=null, m
             ].map(([cmd,desc])=>(
               <button key={cmd} onClick={()=>handleCommand(cmd)} className="pz-inset" style={{display:"block",width:"100%",textAlign:"left",padding:"4px 8px",marginBottom:6,cursor:"pointer",color:"#fff",fontFamily:"var(--pxfont)"}}>
                 <div style={{color:"var(--gold)",fontWeight:700,fontSize:19}}>{cmd}</div>
-                <div style={{color:"#9fb4b2",fontSize:17}}>{desc}</div>
+                <div style={{color:"#b5e8f2",fontSize:17}}>{desc}</div>
               </button>
             ))}
             <Btn color="gray" size="small" style={{width:"100%",marginTop:4}} onClick={()=>setShowHelp(false)}>Close</Btn>
@@ -222,7 +222,7 @@ export default function LuffyOverlay({ ariaState="idle", externalMessage=null, m
           title={minimized ? "Bring back Luffy" : "Talk to Luffy"}
           aria-label={minimized ? "Bring back Luffy" : "Talk to Luffy"}
           className="pz-panel"
-          style={{position:"fixed",bottom:16,left:16,width:62,height:62,zIndex:1000,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:"#1b2829",boxShadow:`0 5px 0 var(--ink), 0 0 0 3px ${color}`,padding:0,overflow:"hidden"}}
+          style={{position:"fixed",bottom:16,left:16,width:62,height:62,zIndex:1000,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:"#2a3638",boxShadow:`0 5px 0 var(--ink), 0 0 0 3px ${color}`,padding:0,overflow:"hidden"}}
         >
           <PixelLuffy mood={ariaState} view="head" height={42} animate={false}/>
         </button>

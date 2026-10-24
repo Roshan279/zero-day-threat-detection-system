@@ -1,8 +1,9 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import PixelLuffy from "./px/PixelLuffy"
 import PxIcon from "./px/PxIcon"
 import { Btn } from "./px/ui"
 import { API } from "./api"
+import ReportBuilder from "./ReportBuilder"
 
 // ─────────────────────────────────────────────────────────────
 // CASE INFO: the "game over" style summary of the whole case so far
@@ -11,17 +12,18 @@ function Row({ label, children, tone }) {
   return (
     <div style={{ display: "flex", alignItems: "stretch", gap: 8, marginBottom: 5 }}>
       <div style={{ flex: "0 0 150px", background: "#26373b", border: "3px solid var(--ink)", borderRadius: 8, padding: "2px 10px", fontSize: 19, fontWeight: 600, display: "flex", alignItems: "center" }}>{label}</div>
-      <div style={{ flex: 1, minWidth: 0, background: "#1b2829", border: "3px solid var(--ink)", borderRadius: 8, padding: "2px 12px", fontSize: 25, fontWeight: 700, textAlign: "right", color: tone || "#fff", textShadow: "0 2px 0 rgba(0,0,0,.6)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</div>
+      <div style={{ flex: 1, minWidth: 0, background: "#2a3638", border: "3px solid var(--ink)", borderRadius: 8, padding: "2px 12px", fontSize: 25, fontWeight: 700, textAlign: "right", color: tone || "#fff", textShadow: "0 2px 0 rgba(0,0,0,.6)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</div>
     </div>
   )
 }
 
 export function CaseInfoModal({ stats, mood, onClose, onScan }) {
+  const [book, setBook] = useState(false)
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose() }
+    const onKey = (e) => { if (e.key === "Escape" && !book) onClose() }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+  }, [onClose, book])
 
   const line =
     stats.critical > 0 ? "Doesn't it feel good to FIND them?" :
@@ -49,10 +51,9 @@ export function CaseInfoModal({ stats, mood, onClose, onScan }) {
           <Row label="Chain" tone={stats.chain === false ? "var(--red)" : "var(--green)"}>{stats.chain === null ? "checking" : stats.chain ? "intact" : "broken"}</Row>
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
             <Btn color="red" className="big" style={{ flex: 1 }} onClick={() => { onScan(); onClose() }}>New Scan</Btn>
-            <Btn color="red" className="big" style={{ flex: 1 }} onClick={() => window.open(`${API}/report/pdf`, "_blank")}>Report</Btn>
+            <Btn color="red" className="big" style={{ flex: 1 }} onClick={() => setBook(true)}>Reports</Btn>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-            <Btn color="red" className="big" style={{ flex: 1 }} onClick={() => window.open(`${API}/report/management`, "_blank")}>Summary</Btn>
             <Btn color="gold" className="big" style={{ flex: 1 }} onClick={onClose}>Back</Btn>
           </div>
         </div>
@@ -64,6 +65,7 @@ export function CaseInfoModal({ stats, mood, onClose, onScan }) {
           <div className="pz-panel paper" style={{ padding: "12px 16px", maxWidth: 260, textAlign: "center", fontWeight: 700, fontSize: 23, lineHeight: 1.15 }}>{line}</div>
         </div>
       </div>
+      {book && <ReportBuilder chain={stats.chain} onClose={() => setBook(false)} />}
     </div>
   )
 }
@@ -79,7 +81,7 @@ function Toggle({ label, hint, on, onChange }) {
       </span>
       <span>
         <span style={{ display: "block", fontWeight: 700, fontSize: 20 }}>{label}</span>
-        <span style={{ display: "block", fontSize: 17, color: "#9fb4b2" }}>{hint}</span>
+        <span style={{ display: "block", fontSize: 17, color: "#b5e8f2" }}>{hint}</span>
       </span>
     </button>
   )

@@ -5,10 +5,10 @@
 import { getHumanDescription } from "../Humanlog"
 
 export const TIER = {
-  4: { name: "CRITICAL", rank: "A",  color: "#fe5f55", dark: "#b83a33", seal: "#fe5f55", mult: 8 },
-  3: { name: "HIGH",     rank: "K",  color: "#ff9a00", dark: "#c46a00", seal: "#ff9a00", mult: 5 },
-  2: { name: "MEDIUM",   rank: "10", color: "#ffc83a", dark: "#c9922a", seal: "#ffc83a", mult: 3 },
-  1: { name: "LOW",      rank: "5",  color: "#4bc292", dark: "#2f8a63", seal: "#4bc292", mult: 1 },
+  4: { name: "CRITICAL", rank: "A",  color: "#fd5f55", dark: "#c14139", seal: "#fd5f55", mult: 8 },
+  3: { name: "HIGH",     rank: "K",  color: "#fa8f0b", dark: "#d66b1b", seal: "#fa8f0b", mult: 5 },
+  2: { name: "MEDIUM",   rank: "10", color: "#fdcf51", dark: "#db9720", seal: "#fdcf51", mult: 3 },
+  1: { name: "LOW",      rank: "5",  color: "#56a786", dark: "#459373", seal: "#56a786", mult: 1 },
 }
 export const tierOf = (t) => TIER[t] || TIER[1]
 
@@ -19,7 +19,7 @@ export function suitFor(source = "") {
   if (s.includes("application")) return "diamond"
   return "heart"
 }
-export const suitColor = (suit) => (suit === "heart" || suit === "diamond" ? "#d6453d" : "#1d2527")
+export const suitColor = (suit) => (suit === "heart" || suit === "diamond" ? "#ec2d33" : "#1d2527")
 
 const ART_BY_ID = {
   4624: "key", 4625: "key", 4648: "key", 4740: "lock", 4672: "star", 4673: "star", 4674: "star",

@@ -9,6 +9,8 @@ import Home from "./Home"
 import EventsPage, { playTotals } from "./EventsPage"
 import GraphsPage from "./GraphsPage"
 import Jukebox from "./Jukebox"
+import { DemoSwitch } from "./PullCord"
+import { getDataMode } from "./dataMode"
 import ChatPage from "./ChatPage"
 import { CaseInfoModal, OptionsModal } from "./Modals"
 import { LeftPanel, JokerRow, AlertSlot, LEFT_WIDTH } from "./px/Shell"
@@ -58,6 +60,7 @@ export default function App() {
   const [events,         setEvents]         = useState([])
   const [activeTab,      setActiveTab]      = useState("home")
   const [focusEvent,     setFocusEvent]     = useState(null)
+  const [pinId,          setPinId]          = useState(null)   // a card another page sent here: keep it in the hand
   const [alerts,         setAlerts]         = useState([])
   const [recentAlerts,   setRecentAlerts]   = useState([])
   const [chatHistory,    setChatHistory]    = useState([])
@@ -395,8 +398,16 @@ export default function App() {
   const navigate = useCallback((tab, opts = {}) => {
     if (opts.filter !== undefined) setFilterTier(opts.filter)
     if (opts.focus) { setFocusEvent(opts.focus) }
+    if (opts.select) {                         // arrive with that one card picked up, ready to investigate
+      const id = opts.select.id
+      setFilterTier(0)
+      setSelectedIds(new Set([id]))
+      setSeenList(list => list.filter(x => x !== id))
+      setFocusEvent(null)
+      setPinId(id)
+    }
     setActiveTab(tab)
-  }, [])
+  }, [setSeenList])
 
   const toggleCard = useCallback((ev) => {
     setSelectedIds(s => { const n = new Set(s); if (n.has(ev.id)) n.delete(ev.id); else n.add(ev.id); return n })
@@ -450,13 +461,13 @@ export default function App() {
       events={events} filterTier={filterTier} onFilterTier={setFilterTier}
       selectedIds={selectedIds} onToggle={toggleCard} onClearSelection={() => setSelectedIds(new Set())}
       seenIds={seenIds} onScore={onScore} onMarkSeen={markSeen}
-      focusEvent={focusEvent} onFocus={focusCard}
+      focusEvent={focusEvent} onFocus={focusCard} pinId={pinId} onUnpin={() => setPinId(null)}
       onAskLuffy={handleAskLuffy} onBlockEntity={name => showFeedback(`"${sanitizeField(name)}" blocked`)}
       onResetSeen={() => setSeenList([])}
       onScan={() => dispatchAction("RUN_SCAN")} onReload={() => { fetchAll(); showFeedback("Reloaded") }}
     />
   )
-  else if (activeTab === "graphs") page = <GraphsPage events={events} onPickTier={(t) => navigate("dashboard", { filter: t >= 3 ? t : 0 })} />
+  else if (activeTab === "graphs") page = <GraphsPage events={events} />
   else if (activeTab === "entity") page = <EntityGraph onNodeClick={handleGraphClick} />
   else if (activeTab === "features") page = <FeatureImportance onAskLuffy={handleFeatureClick} />
   else if (activeTab === "response") page = <ResponseSimulation />
@@ -483,6 +494,7 @@ export default function App() {
       />
 
       <main style={{ flex: 1, minWidth: 0, position: "relative", zIndex: 1, display: "flex", flexDirection: "column" }}>
+        {getDataMode() === "demo" && <div style={{ position: "absolute", bottom: 2, left: 20, zIndex: 5, fontSize: 16, color: "var(--gold)", textShadow: "0 2px 0 rgba(0,0,0,.6)" }}>Demo data: fabricated events, nothing real is touched.</div>}
         <JokerRow active={activeTab} onSelect={setActiveTab} badges={{ dashboard: stats.critical + stats.high }} />
         <div style={{ flex: 1, minHeight: 0, position: "relative", marginTop: 16 }}>
           <div key={activeTab} className="pz-fade-up" style={pageStyle}>{page}</div>
@@ -490,6 +502,7 @@ export default function App() {
         <AlertSlot alerts={recentAlerts} onClick={(ev) => navigate("dashboard", { focus: ev })} />
       </main>
 
+      <DemoSwitch />
       <Jukebox mood={stats.maxTier >= 4 ? "tense" : "calm"} />
 
       <LuffyOverlay

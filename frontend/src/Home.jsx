@@ -1,4 +1,6 @@
-import { useMemo } from "react"
+import { useMemo, useRef, useState } from "react"
+import FloatCard from "./FloatCard"
+import StepRail from "./StepRail"
 import { CardStack, PixelCard } from "./px/Card"
 import { LuffyAvatar } from "./px/PixelLuffy"
 import { MOOD_CONFIG } from "./LuffyOverlay"
@@ -44,6 +46,22 @@ export default function Home({ events = [], seenIds, mood = "idle", online = tru
 
   const piles = [4, 3, 2, 1]
 
+  // A picked card floats up with its summary instead of jumping to the Events tab
+  const colRef = useRef(null)
+  const [picked, setPicked] = useState(null)
+  const [anchor, setAnchor] = useState({ x: 200, y: 280 })
+  const [boxWidth, setBoxWidth] = useState(520)
+  const pick = (ev) => {
+    if (picked && picked.id === ev.id) { setPicked(null); return }
+    const col = colRef.current?.getBoundingClientRect()
+    const el = document.querySelector(`[data-event-id="${ev.id}"]`)
+    const r = el?.getBoundingClientRect()
+    if (col) setBoxWidth(col.width)
+    if (col && r) setAnchor({ x: r.left - col.left + r.width / 2, y: r.top - col.top })
+    setPicked(ev)
+  }
+  const shown = picked && events.some(e => e.id === picked.id) ? picked : null   // a card that was cleared away goes with it
+
   return (
     <div style={{ height: "100%", overflowY: "auto", padding: "14px 160px 30px 20px" }}>
       {/* Threat layers + everything that explains them */}
@@ -69,7 +87,7 @@ export default function Home({ events = [], seenIds, mood = "idle", online = tru
           <ThreatCube events={events} onOpen={t => onNavigate("dashboard", { filter: t >= 3 ? t : 0 })} />
         </div>
 
-        <div style={{ flex: "1 1 500px", minWidth: 300 }}>
+        <div ref={colRef} style={{ flex: "1 1 500px", minWidth: 300, position: "relative" }}>
     <div className="pz-panel paper pz-bounce-in" style={{ padding: 14, marginBottom: 16, maxWidth: 520 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
         <LuffyAvatar mood={mood} size={58} color={color} />
@@ -85,13 +103,13 @@ export default function Home({ events = [], seenIds, mood = "idle", online = tru
         </Btn>
       </div>
     </div>
-          <div className="pz-label" style={{ marginBottom: 6 }}>Threat piles. Click one to open it. Hover a layer on the left to lift it.</div>
+          <div className="pz-label" style={{ marginBottom: 6 }}>Threat piles. Click a card for its summary, or the label to open the pile.</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
             {piles.map((t, i) => (
               <div key={t} className="pz-fade-up" style={{ animationDelay: `${i * 0.08}s` }}>
                 <CardStack
                   tier={TIER[t]} count={stats.by[t].length} events={stats.by[t]} width={78}
-                  onPick={ev => onNavigate("dashboard", { focus: ev })}
+                  onPick={pick}
                   onClick={() => onNavigate("dashboard", { filter: t >= 3 ? t : 0 })}
                 />
               </div>
@@ -103,31 +121,20 @@ export default function Home({ events = [], seenIds, mood = "idle", online = tru
             <div style={{ position: "relative", height: 150, marginBottom: 12 }}>
               {stats.top.map((ev, i) => (
                 <PixelCard key={ev.id} event={ev} width={88} x={i * 62} y={8} rot={(i - 2.5) * 2} z={i + 1} delay={i * 0.06}
-                  onClick={() => onNavigate("dashboard", { focus: ev })} />
+                  selected={shown?.id === ev.id} onClick={() => pick(ev)} />
               ))}
             </div>
           ) : (
             <div className="pz-panel" style={{ padding: 16, maxWidth: 420, marginBottom: 12 }}>
               <div style={{ fontWeight: 700, fontSize: 23 }}>No high-risk cards.</div>
-              <div style={{ color: "#9fb4b2", margin: "4px 0 10px" }}>You can inject a demo attack to see how the cards look.</div>
+              <div style={{ color: "#b5e8f2", margin: "4px 0 10px" }}>You can inject a demo attack to see how the cards look.</div>
               <Btn color="purple" onClick={onDemo}>Inject demo attack</Btn>
             </div>
           )}
 
-          <div className="pz-label" style={{ margin: "6px 0 6px" }}>How it works</div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {STEPS.map(([n, t, d], i) => (
-              <div key={n} className="pz-panel paper pz-fade-up" style={{ width: 148, padding: "8px 10px", animationDelay: `${i * 0.07}s`, transition: "transform .15s" }}
-                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-6px) rotate(-1deg)" }}
-                onMouseLeave={e => { e.currentTarget.style.transform = "none" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 24, height: 24, border: "3px solid var(--ink)", borderRadius: "50%", background: "var(--gold)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{n}</span>
-                  <span style={{ fontWeight: 700, fontSize: 18 }}>{t}</span>
-                </div>
-                <div style={{ fontSize: 16, marginTop: 4, lineHeight: 1.15, color: "#3e4d4b" }}>{d}</div>
-              </div>
-            ))}
-          </div>
+          <StepRail steps={STEPS} onGo={tab => onNavigate(tab)} />
+
+          {shown && <FloatCard event={shown} anchor={anchor} boxWidth={boxWidth} onClose={() => setPicked(null)} onOpenCase={() => onNavigate("dashboard", { select: shown })} />}
         </div>
       </div>
     </div>

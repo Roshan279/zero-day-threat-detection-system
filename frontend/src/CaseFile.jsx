@@ -4,7 +4,7 @@ import { API } from "./api"
 import PxIcon from "./px/PxIcon"
 import { Btn } from "./px/ui"
 import { cardFace } from "./px/cardModel"
-import { buildRichContext, explainTier, formatTimestamp } from "./Humanlog"
+import { buildRichContext, formatTimestamp } from "./Humanlog"
 import { sanitizeField } from "./sanitize"
 import LuffyExplain from "./LuffyExplain"
 
@@ -26,9 +26,9 @@ function UnblockButton({ entity, onDone }) {
 
 function Section({ title, children, tone, delay = 0 }) {
   return (
-    <div className="pz-fade-up" style={{ marginBottom: 12, animationDelay: `${delay}s`, breakInside: "avoid" }}>
-      <div style={{ fontSize: 15, letterSpacing: ".12em", fontWeight: 700, color: "#6b7b78", marginBottom: 4 }}>{title}</div>
-      <div style={{ border: "3px solid var(--ink)", borderRadius: 8, padding: "8px 10px", background: tone || "#fff", fontSize: 19, lineHeight: 1.25 }}>{children}</div>
+    <div className="pz-fade-up" style={{ marginBottom: 8, animationDelay: `${delay}s`, breakInside: "avoid" }}>
+      <div style={{ fontSize: 13, letterSpacing: ".12em", fontWeight: 700, color: "#6b7b78", marginBottom: 2 }}>{title}</div>
+      <div style={{ border: "3px solid var(--ink)", borderRadius: 8, padding: "5px 9px", background: tone || "#fff", fontSize: 17, lineHeight: 1.2 }}>{children}</div>
     </div>
   )
 }
@@ -71,12 +71,12 @@ export default function CaseFile({ event, onAskLuffy, onBlockEntity, onClose, wi
 
   const iv = integrity?.valid
   const ivLabel = iv === true ? "HASH VERIFIED" : iv === false ? "HASH MISMATCH" : iv === null ? "LEGACY EVENT" : "CHECKING..."
-  const ivColor = iv === true ? "var(--green-d)" : iv === false ? "var(--red-d)" : "#6f8583"
+  const ivColor = iv === true ? "var(--green-d)" : iv === false ? "var(--red-d)" : "#5e7977"
 
   return (
     <div className="pz-panel paper pz-bounce-in" style={{ width: wide ? "100%" : 340, height: wide ? "100%" : undefined, maxHeight: "100%", overflowY: "auto", padding: wide ? 18 : 14, background: "linear-gradient(180deg,#f7f2e6,#e9e2d0)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <div style={{ textAlign: "center", lineHeight: 1, color: f.suitColor, fontWeight: 700, fontSize: 38 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <div style={{ textAlign: "center", lineHeight: 1, color: f.suitColor, fontWeight: 700, fontSize: 34 }}>
           {f.tier.rank}
           <div style={{ display: "flex", justifyContent: "center", marginTop: 2 }}><PxIcon suit={f.suit} size={22} color={f.suitColor} /></div>
         </div>
@@ -88,65 +88,56 @@ export default function CaseFile({ event, onAskLuffy, onBlockEntity, onClose, wi
         {onClose && <button className="pz-btn red small" style={{ padding: "2px 8px" }} onClick={onClose} aria-label="Close case file">X</button>}
       </div>
 
-      <div className="pz-tag pz-bounce-in" style={{ display: "block", textAlign: "center", background: ivColor, marginBottom: 12, padding: "4px 6px", animationDelay: ".1s" }}>
-        {ivLabel}{integrity?.event_hash ? `  ${integrity.event_hash.slice(0, 10)}...` : ""}
-      </div>
-
-      <div className="pz-fade-up" style={{ marginBottom: 12, animationDelay: ".15s" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, letterSpacing: ".12em", fontWeight: 700, color: "#6b7b78", marginBottom: 4 }}>
-          <span>HOW SUSPICIOUS</span><span style={{ color: f.tier.dark }}>{f.score}%</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div className="pz-tag" style={{ background: ivColor, padding: "1px 6px", fontSize: 13 }}>{ivLabel}{integrity?.event_hash ? `  ${integrity.event_hash.slice(0, 8)}...` : ""}</div>
+        <div style={{ flex: 1, position: "relative", height: 16, background: "#2a3638", border: "3px solid var(--ink)", borderRadius: 6, overflow: "hidden" }} title={`${f.score}% suspicious`}>
+          <div className="pz-bar" style={{ width: `${Math.max(3, f.score)}%`, height: "100%", background: f.tier.color, animationDelay: ".3s" }} />
         </div>
-        <div style={{ position: "relative", height: 20, background: "#1b2829", border: "3px solid var(--ink)", borderRadius: 6, overflow: "hidden" }}>
-          <div className="pz-bar" style={{ width: `${Math.max(3, f.score)}%`, height: "100%", background: f.tier.color, boxShadow: "inset 0 -4px 0 rgba(0,0,0,.25), inset 0 2px 0 rgba(255,255,255,.3)", animationDelay: ".3s" }} />
-          {[25, 50, 75].map(t => <span key={t} style={{ position: "absolute", left: `${t}%`, top: 0, bottom: 0, width: 2, background: "rgba(255,255,255,.25)" }} />)}
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#8a9a98", marginTop: 2 }}>
-          <span>routine</span><span>unusual</span><span>very unusual</span>
-        </div>
+        <b style={{ fontSize: 18, color: f.tier.dark }}>{f.score}%</b>
       </div>
 
       {note > 0 && <LuffyExplain key={note} event={event} onClose={() => setNote(0)} />}
 
       <div style={wide ? { columnCount: 2, columnGap: 16 } : undefined}>
-      <Section title="WHAT HAPPENED" delay={.2}>{ctx.plain_english}</Section>
-      <Section title="THREAT LEVEL" tone={f.tier.color + "33"} delay={.28}>
-        <b>{f.tier.name}.</b> {explainTier(event.threat_tier)}
-      </Section>
-      {ctx.cluster_label && <Section title="BEHAVIOUR" delay={.36}>{ctx.cluster_label}</Section>}
-      {ctx.investigation_hint && <Section title="WHAT TO INVESTIGATE" delay={.44}>{ctx.investigation_hint}</Section>}
-      {ctx.attack_phase && <Section title="ATTACK PHASE" tone="#fbd5d1" delay={.5}>{sanitizeField(ctx.attack_phase)}</Section>}
+      <Section title={ctx.cluster_label ? `WHAT HAPPENED  ·  ${String(ctx.cluster_label).toUpperCase()}` : "WHAT HAPPENED"} delay={.2}>{ctx.plain_english}</Section>
+      {ctx.investigation_hint && <Section title="WHAT TO INVESTIGATE" tone={f.tier.color + "26"} delay={.28}>{ctx.investigation_hint}</Section>}
+      {ctx.attack_phase && <Section title="ATTACK PHASE" tone="#fbd5d1" delay={.34}>{sanitizeField(ctx.attack_phase)}</Section>}
 
-      <Section title="KEY FACTS" delay={.56}>
-        {[
-          ["Time", formatTimestamp(event.timestamp)],
-          ["Anomaly", `${ctx.anomaly_score}% suspicious`],
-          ["Source", ctx.source],
-          ctx.entity && ["Account", ctx.entity],
-          ctx.ip_address && ["IP", ctx.ip_address],
-          ctx.computer && ["Computer", ctx.computer],
-        ].filter(Boolean).map(([k, v]) => (
-          <div key={k} style={{ display: "flex", gap: 8, fontSize: 18 }}>
-            <span style={{ minWidth: 70, color: "#6b7b78", fontWeight: 600 }}>{k}</span><span>{v}</span>
-          </div>
-        ))}
+      <Section title="KEY FACTS" delay={.4}>
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 10, rowGap: 1, fontSize: 16 }}>
+          {[
+            ["Time", formatTimestamp(event.timestamp)],
+            ["Source", ctx.source],
+            ctx.entity && ["Account", ctx.entity],
+            ctx.ip_address && ["IP", ctx.ip_address],
+            ctx.computer && ["Computer", ctx.computer],
+          ].filter(Boolean).map(([k, v]) => (
+            <div key={k} style={{ display: "contents" }}>
+              <span style={{ color: "#6b7b78", fontWeight: 600 }}>{k}</span><span style={{ wordBreak: "break-word" }}>{v}</span>
+            </div>
+          ))}
+        </div>
       </Section>
 
       {evidence.length > 0 && (
-        <Section title="RAW EVIDENCE" delay={.64}>
-          {evidence.map(([k, v]) => (
-            <div key={k} style={{ display: "flex", gap: 8, fontSize: 16, lineHeight: 1.2 }}>
-              <span style={{ minWidth: 92, color: "#6b7b78", fontWeight: 600 }}>{k}</span><span style={{ wordBreak: "break-all" }}>{v}</span>
-            </div>
-          ))}
-        </Section>
+        <details style={{ marginBottom: 8 }}>
+          <summary style={{ fontSize: 13, letterSpacing: ".12em", fontWeight: 700, color: "#6b7b78", cursor: "pointer" }}>RAW EVIDENCE ({evidence.length})</summary>
+          <div style={{ border: "3px solid var(--ink)", borderRadius: 8, padding: "5px 9px", background: "#fff", marginTop: 3 }}>
+            {evidence.map(([k, v]) => (
+              <div key={k} style={{ display: "flex", gap: 8, fontSize: 14, lineHeight: 1.2 }}>
+                <span style={{ minWidth: 84, color: "#6b7b78", fontWeight: 600 }}>{k}</span><span style={{ wordBreak: "break-all" }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       </div>
 
-      <div style={{ display: "flex", flexDirection: wide ? "row" : "column", gap: 10, marginTop: 4 }}>
-        <Btn color="blue" style={wide ? { flex: 1 } : undefined} onClick={() => (inlineLuffy ? setNote(n => n + 1) : onAskLuffy && onAskLuffy(event))}>{note ? "Ask Luffy again" : "Ask Luffy to explain"}</Btn>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 2 }}>
+        <Btn color="blue" style={{ flex: 1, padding: "6px 8px" }} onClick={() => (inlineLuffy ? setNote(n => n + 1) : onAskLuffy && onAskLuffy(event))}>{note ? "Ask again" : "Ask Luffy"}</Btn>
         {entityName && event.threat_tier >= 2 && !blocked && (
-          <Btn color="red" style={wide ? { flex: 1 } : undefined} disabled={blocking} onClick={block}>{blocking ? "Blocking..." : `Block "${entityName.slice(0, 22)}"`}</Btn>
+          <Btn color="red" style={{ flex: 1, padding: "6px 8px" }} disabled={blocking} onClick={block}>{blocking ? "Blocking..." : `Block ${entityName.slice(0, 14)}`}</Btn>
         )}
         {blocked && entityName && <UnblockButton entity={entityName} onDone={() => setBlocked(false)} />}
       </div>

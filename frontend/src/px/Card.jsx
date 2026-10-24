@@ -36,12 +36,18 @@ export function PixelCard({
         <span>{f.tier.rank}</span>
         <PxIcon suit={f.suit} size={16 * scale} color={f.suitColor} />
       </div>
-      <div className="c-seal" />
-      <div className="c-art" style={{ top: 40 * scale }}>
-        <PxIcon name={f.art} size={48 * scale} />
+      <div className="c-corner br" style={{ color: f.suitColor, fontSize: 31 * scale }}>
+        <span>{f.tier.rank}</span>
+        <PxIcon suit={f.suit} size={16 * scale} color={f.suitColor} />
       </div>
-      <div className="c-title" style={{ top: 98 * scale, fontSize: 17 * scale, height: 28 * scale }}>{f.title}</div>
-      <div className="c-score" style={{ background: f.tier.color, color: f.tier.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: f.tier.name === "MEDIUM" ? "none" : undefined }}>
+      <div className="c-frame" style={{ "--tc": f.tier.color, left: 30 * scale, right: 30 * scale, top: 8 * scale, height: 98 * scale }}>
+        <PxIcon name={f.art} size={50 * scale} />
+      </div>
+      <div className="c-title" style={{ left: 34 * scale, right: 34 * scale, top: 109 * scale, fontSize: 11.5 * scale, height: 26 * scale }}>{f.title}</div>
+      <div className="c-score" style={{
+        background: f.tier.color, color: f.tier.name === "MEDIUM" ? "#1d2527" : "#fff", textShadow: f.tier.name === "MEDIUM" ? "none" : undefined,
+        bottom: 5 * scale, height: 24 * scale, minWidth: 46 * scale, fontSize: 19 * scale, padding: `0 ${5 * scale}px`, borderRadius: 5 * scale, borderWidth: Math.max(1, 2 * scale),
+      }}>
         {f.score}
       </div>
       {seen && <div className="c-seen">SEEN</div>}

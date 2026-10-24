@@ -13,7 +13,7 @@ function StatTile({ label, color, children }) {
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
       <div className="pz-tag" style={{ display: "block", textAlign: "center", background: color, borderRadius: "6px 6px 0 0", fontSize: 14, letterSpacing: 0, padding: "3px 2px", whiteSpace: "nowrap", overflow: "hidden" }}>{label}</div>
-      <div className="pz-inset" style={{ borderRadius: "0 0 8px 8px", borderTop: 0, height: 38, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 30, color: "#fe5f55", textShadow: "0 2px 0 rgba(0,0,0,.6)" }}>
+      <div className="pz-inset" style={{ borderRadius: "0 0 8px 8px", borderTop: 0, height: 38, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 30, color: "#fd5f55", textShadow: "0 2px 0 rgba(0,0,0,.6)" }}>
         {children}
       </div>
     </div>
@@ -34,13 +34,13 @@ export function LeftPanel({
       style={{
         position: "relative", zIndex: 2, width: LEFT_WIDTH, flexShrink: 0, height: "100%",
         padding: `10px 12px ${10 + reserve}px 12px`, display: "flex", flexDirection: "column", gap: 7,
-        background: "linear-gradient(180deg, #2b5a45 0%, #234a38 100%)",
+        background: "linear-gradient(180deg, #4f6367 0%, #3d4d51 100%)",
         borderRight: "4px solid var(--ink)", boxShadow: "6px 0 0 rgba(0,0,0,.25)",
         overflowY: "auto", overflowX: "hidden",
       }}
     >
       {/* Blind banner: how bad is it right now */}
-      <div className="pz-panel" style={{ background: online ? t.color : "#6f8583", padding: "4px 8px 5px", textAlign: "center", color: online ? (t.name === "MEDIUM" ? "#1d2527" : "#fff") : "#fff" }}>
+      <div className="pz-panel" style={{ background: online ? t.color : "#5e7977", padding: "4px 8px 5px", textAlign: "center", color: online ? (t.name === "MEDIUM" ? "#1d2527" : "#fff") : "#fff" }}>
         <div className="pz-title" style={{ fontSize: 30, lineHeight: 1, textShadow: t.name === "MEDIUM" ? "none" : undefined }}>
           {online ? `${t.name} THREAT` : "OFFLINE"}
         </div>
@@ -54,7 +54,7 @@ export function LeftPanel({
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="pz-label" style={{ fontSize: 14 }}>Top anomaly</div>
-          <div style={{ color: "#fe5f55", fontWeight: 700, fontSize: 34, lineHeight: 1, textShadow: "0 2px 0 rgba(0,0,0,.6)" }}><Counter value={topScore} format={v => `${v}%`} /></div>
+          <div style={{ color: "#fd5f55", fontWeight: 700, fontSize: 34, lineHeight: 1, textShadow: "0 2px 0 rgba(0,0,0,.6)" }}><Counter value={topScore} format={v => `${v}%`} /></div>
           <div style={{ display: "flex", gap: 2, marginTop: 2 }}>
             {Array.from({ length: stars }, (_, i) => <PxIcon key={i} name="star" size={14} />)}
           </div>
@@ -63,7 +63,7 @@ export function LeftPanel({
 
       {/* Round score */}
       <div className="pz-inset" style={{ padding: "4px 10px", display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ width: 54, lineHeight: 1.05, fontSize: 15, color: "#9fb4b2", letterSpacing: ".06em" }}>CASE<br />SCORE</div>
+        <div style={{ width: 54, lineHeight: 1.05, fontSize: 15, color: "#b5e8f2", letterSpacing: ".06em" }}>CASE<br />SCORE</div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#0f1819", border: "3px solid var(--ink)", borderRadius: 8, padding: "4px 8px", justifyContent: "flex-end" }}>
           <PxIcon name="chip" size={22} />
           <Counter value={caseScore} style={{ fontSize: 32, fontWeight: 700 }} />
@@ -73,11 +73,11 @@ export function LeftPanel({
       {/* Chips x Mult for the selected cards */}
       <div className="pz-inset" style={{ padding: "5px 8px", display: "flex", alignItems: "center", gap: 8 }}>
         <div className="pz-chipbox" style={{ flex: 1 }}><Counter value={chips} duration={350} /></div>
-        <span style={{ fontSize: 33, fontWeight: 700, color: "#fe5f55", textShadow: "0 2px 0 rgba(0,0,0,.6)" }}>x</span>
+        <span style={{ fontSize: 33, fontWeight: 700, color: "#fd5f55", textShadow: "0 2px 0 rgba(0,0,0,.6)" }}>x</span>
         <div className="pz-multbox" style={{ flex: 1 }}><Counter value={mult} duration={350} /></div>
       </div>
       {selectedCount > 0 && (
-        <div style={{ fontSize: 14, color: "#cfe0dd", textAlign: "center", marginTop: -3 }}>{selectedCount} card{selectedCount > 1 ? "s" : ""} selected</div>
+        <div style={{ fontSize: 14, color: "#dcdcdc", textAlign: "center", marginTop: -3 }}>{selectedCount} card{selectedCount > 1 ? "s" : ""} selected</div>
       )}
 
       {/* Buttons + tiles */}
@@ -100,7 +100,7 @@ export function LeftPanel({
       <div style={{ display: "flex", gap: 8 }}>
         <StatTile label="ENTITIES" color="var(--orange)"><span style={{ color: "#fff" }}><Counter value={entities} /></span></StatTile>
         <StatTile label="CHAIN" color={chain === false ? "var(--red)" : "var(--green-d)"}>
-          <span style={{ color: chain === false ? "#fe5f55" : "#4bc292", fontSize: 28 }}>{chain === null ? "..." : chain ? "OK" : "BAD"}</span>
+          <span style={{ color: chain === false ? "#fd5f55" : "#56a786", fontSize: 28 }}>{chain === null ? "..." : chain ? "OK" : "BAD"}</span>
         </StatTile>
       </div>
     </aside>
@@ -111,16 +111,16 @@ export function LeftPanel({
 // JOKER ROW: the tabs, drawn as joker cards with hover descriptions
 // ─────────────────────────────────────────────────────────────
 export const JOKERS = [
-  { id: "home",      name: "HOME",      icon: "home",     bg: "#5d9fd0", rarity: "Common",   desc: "Your case at a glance: threat stacks, status and Luffy's briefing." },
-  { id: "dashboard", name: "EVENTS",    icon: "events",   bg: "#d98b4b", rarity: "Common",   desc: "Every event as a card. Pick cards, size up the play, then investigate." },
-  { id: "graphs",    name: "GRAPHS",    icon: "graphs",   bg: "#7bbf6a", rarity: "Common",   desc: "Threat levels, activity and behaviour clusters as charts." },
-  { id: "entity",    name: "ENTITIES",  icon: "entities", bg: "#c46bd3", rarity: "Uncommon", desc: "Who is connected to what. Drag nodes, click one to inspect it." },
-  { id: "features",  name: "ML SCORES", icon: "ml",       bg: "#8f7bff", rarity: "Uncommon", desc: "Why the model flagged each event, feature by feature." },
-  { id: "response",  name: "RESPONSE",  icon: "response", bg: "#4fb0a8", rarity: "Rare",     desc: "What would happen at each threat level. Nothing runs without you." },
-  { id: "replay",    name: "REPLAY",    icon: "replay",   bg: "#e8b13a", rarity: "Rare",     desc: "Play an incident back step by step, with Luffy narrating." },
-  { id: "luffy",     name: "LUFFY",     icon: "chat",     bg: "#e0685c", rarity: "Legendary", desc: "Ask Luffy anything, or give him a command." },
+  { id: "home",      name: "HOME",      icon: "home",     bg: "#5aabdc", rarity: "Common",   desc: "Your case at a glance: threat stacks, status and Luffy's briefing." },
+  { id: "dashboard", name: "EVENTS",    icon: "events",   bg: "#f2994b", rarity: "Common",   desc: "Every event as a card. Pick cards, size up the play, then investigate." },
+  { id: "graphs",    name: "GRAPHS",    icon: "graphs",   bg: "#86a367", rarity: "Common",   desc: "Threat levels, activity and behaviour clusters as charts." },
+  { id: "entity",    name: "ENTITIES",  icon: "entities", bg: "#d58ac0", rarity: "Uncommon", desc: "Who is connected to what. Drag nodes, click one to inspect it." },
+  { id: "features",  name: "ML SCORES", icon: "ml",       bg: "#899ad1", rarity: "Uncommon", desc: "Why the model flagged each event, feature by feature." },
+  { id: "response",  name: "RESPONSE",  icon: "response", bg: "#74cca8", rarity: "Rare",     desc: "What would happen at each threat level. Nothing runs without you." },
+  { id: "replay",    name: "REPLAY",    icon: "replay",   bg: "#fdcf51", rarity: "Rare",     desc: "Play an incident back step by step, with Luffy narrating." },
+  { id: "luffy",     name: "LUFFY",     icon: "chat",     bg: "#ff7269", rarity: "Legendary", desc: "Ask Luffy anything, or give him a command." },
 ]
-const RARITY = { Common: "#0093ff", Uncommon: "#4bc292", Rare: "#fe5f55", Legendary: "#9b6bff" }
+const RARITY = { Common: "#009cfd", Uncommon: "#56a786", Rare: "#fd5f55", Legendary: "#935adc" }
 
 export function JokerRow({ active, onSelect, badges = {} }) {
   const [hover, setHover] = useState(null)
@@ -185,7 +185,7 @@ export function AlertSlot({ alerts = [], max = 3, onClick }) {
           )}
         </div>
       </button>
-      <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#cfe0dd", textShadow: "0 2px 0 rgba(0,0,0,.6)" }}>{alerts.length}/{max}</div>
+      <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#dcdcdc", textShadow: "0 2px 0 rgba(0,0,0,.6)" }}>{alerts.length}/{max}</div>
     </div>
   )
 }

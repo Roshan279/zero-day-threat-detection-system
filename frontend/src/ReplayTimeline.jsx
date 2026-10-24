@@ -14,15 +14,15 @@ import { tierOf } from "./px/cardModel"
 // are face down; each step flips the next one over while Luffy narrates.
 // ─────────────────────────────────────────────────────────────
 const PHASE_COLORS = {
-  "Phase 1: Brute Force":              "#ffc83a",
-  "Phase 1: Account Lockout":          "#ff9a00",
-  "Phase 2: Credential Access":        "#ff9a00",
-  "Phase 2: Credential Theft":         "#ff9a00",
-  "Phase 3: Privilege Escalation":     "#fe5f55",
-  "Phase 3: Backdoor Login":           "#fe5f55",
-  "Phase 4: Persistence":              "#fe5f55",
-  "Phase 5: Data Exfiltration":        "#fe5f55",
-  "Phase 5: Data Exfiltration Complete":"#fe5f55",
+  "Phase 1: Brute Force":              "#fdcf51",
+  "Phase 1: Account Lockout":          "#fa8f0b",
+  "Phase 2: Credential Access":        "#fa8f0b",
+  "Phase 2: Credential Theft":         "#fa8f0b",
+  "Phase 3: Privilege Escalation":     "#fd5f55",
+  "Phase 3: Backdoor Login":           "#fd5f55",
+  "Phase 4: Persistence":              "#fd5f55",
+  "Phase 5: Data Exfiltration":        "#fd5f55",
+  "Phase 5: Data Exfiltration Complete":"#fd5f55",
 }
 
 const LUFFY_PHASE_LINES = {
@@ -72,7 +72,7 @@ function IntegrityTag({ integrity, hash }) {
   if (!integrity) return null
   const v = integrity.valid
   const label = v === true ? "HASH VERIFIED" : v === false ? "HASH MISMATCH" : "LEGACY EVENT"
-  const color = v === true ? "var(--green-d)" : v === false ? "var(--red-d)" : "#6f8583"
+  const color = v === true ? "var(--green-d)" : v === false ? "var(--red-d)" : "#5e7977"
   return <span className="pz-tag" style={{ background: color }}>{label}{hash ? `  ${hash}` : ""}</span>
 }
 
@@ -262,7 +262,7 @@ export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
       {total === 0 ? (
         <div className="pz-panel" style={{ padding: 20, maxWidth: 420 }}>
           <div className="pz-title" style={{ fontSize: 26 }}>Nothing to replay yet</div>
-          <div style={{ color: "#9fb4b2", marginTop: 4 }}>Run a scan, or inject the demo attack from Home.</div>
+          <div style={{ color: "#b5e8f2", marginTop: 4 }}>Run a scan, or inject the demo attack from Home.</div>
         </div>
       ) : (
         <>
@@ -285,7 +285,7 @@ export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 17, fontWeight: 700, marginBottom: 2 }}>
                 <span className="pz-label">Progress</span><span>{Math.max(0, currentStep + 1)}/{total}</span>
               </div>
-              <div style={{ height: 16, background: "#1b2829", border: "3px solid var(--ink)", borderRadius: 5, overflow: "hidden" }}>
+              <div style={{ height: 16, background: "#2a3638", border: "3px solid var(--ink)", borderRadius: 5, overflow: "hidden" }}>
                 <div style={{ width: `${(Math.max(0, currentStep + 1) / total) * 100}%`, height: "100%", background: "var(--green)", transition: "width .4s", boxShadow: "inset 0 -4px 0 rgba(0,0,0,.25)" }} />
               </div>
             </div>
@@ -337,7 +337,7 @@ export default function ReplayTimeline({ onLuffyState, onLuffyMessage }) {
           ) : (
             <div className="pz-panel pz-fade-up" style={{ padding: 18, maxWidth: 440 }}>
               <div className="pz-title" style={{ fontSize: 26 }}>Press Play</div>
-              <div style={{ color: "#9fb4b2", marginTop: 4 }}>Each card flips over as the incident unfolds. Click any card to jump to that step.</div>
+              <div style={{ color: "#b5e8f2", marginTop: 4 }}>Each card flips over as the incident unfolds. Click any card to jump to that step.</div>
             </div>
           )}
         </>

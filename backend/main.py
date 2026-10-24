@@ -52,7 +52,7 @@ from anomaly_detector import (
 )
 from detective import (
     generate_case_file, chat_with_detective,
-    get_chat_history, analyze_single_event,
+    get_chat_history, analyze_single_event, warm_up,
 )
 from response_executor import (
     execute_block, execute_unblock,
@@ -81,6 +81,7 @@ init_db()
 
 # Pre-load saved ML models so first real-time event scores instantly
 load_models_on_startup()
+warm_up()        # load the local AI model in the background
 
 # Upgrade the hash chain to the current scheme (no-op once done)
 try:
@@ -288,6 +289,7 @@ class ChatMessage(BaseModel):
 
 class EventAnalysisRequest(BaseModel):
     event_id: int
+    event: Optional[dict] = None     # Demo data: the event itself, because it is not in the database
 
 class BlockEntityRequest(BaseModel):
     entity:       str
@@ -440,14 +442,17 @@ def chat_history():
 
 @app.post("/analyze-event")
 def analyze_event(req: EventAnalysisRequest):
-    conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM events WHERE id = ?", (req.event_id,))
-    row    = cursor.fetchone()
-    conn.close()
-    if not row:
-        return {"narrative": "Can't find that clue.", "mood": "idle"}
-    event     = dict(row)
+    if req.event:
+        event = dict(req.event)
+    else:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM events WHERE id = ?", (req.event_id,))
+        row    = cursor.fetchone()
+        conn.close()
+        if not row:
+            return {"narrative": "Can't find that clue.", "mood": "idle"}
+        event     = dict(row)
     narrative = analyze_single_event(event)
     tier      = event.get("threat_tier", 1)
     mood = (

@@ -18,8 +18,8 @@ It is built as a two-tier app:
 
 - Backend: Python / FastAPI service that collects Windows Event
   Log data, runs anomaly detection (Isolation Forest + KMeans),
-  maintains a hash-chained forensic database, talks to Groq's
-  LLM API for the "Luffy" detective persona, executes active
+  maintains a hash-chained forensic database, talks to a local
+  (Ollama) or cloud (Groq) LLM for the "Luffy" detective persona, executes active
   response actions, and generates PDF reports.
 
 - Frontend: React 19 + Vite single-page app that visualizes
@@ -76,10 +76,13 @@ TABLE OF CONTENTS
   source + prev_hash)), so deletion, modification, or reordering
   of records is detectable.
 
-- AI detective persona ("Luffy"): a Groq/Llama-backed chat
-  assistant that narrates case files, explains individual events,
-  answers free-form questions about the investigation, and can
-  drive the UI itself (switch tabs, run a scan, block an entity)
+- AI detective persona ("Luffy"): an LLM-backed chat assistant
+  (Ollama on your own computer by default, or Groq) that narrates
+  case files, explains individual events, answers free-form
+  questions about the investigation, drives the UI itself (switch
+  tabs, run a scan, block an entity), and teaches general software
+  and cybersecurity concepts and tools as you go (always defensive
+  and authorised use only)
   via structured commands.
 
 - Active response: real Windows account disable (net user
@@ -111,7 +114,8 @@ TABLE OF CONTENTS
 
 - PII-safe AI calls: all event data is sanitized (IPs redacted,
   usernames pseudonymised) and wrapped against prompt injection
-  before being sent to the Groq API.
+  before being sent to the AI (a local Ollama model never leaves your
+  computer; Groq is a third-party cloud API).
 
 - Cross-platform dev fallback: the Windows-only pieces
   (pywin32/win32evtlog) degrade gracefully on non-Windows systems
@@ -135,7 +139,8 @@ TABLE OF CONTENTS
     chat_history / flagged_entities / response_audit, verified
     by integrity.py (SHA-256 hash chain)
 
-  - Groq LLM API (Luffy persona, sanitized data only)
+  - Ollama (local, default) or Groq (cloud) LLM for the Luffy
+    persona, sanitized data only
 
   response_executor.py issues real Windows actions (net user /
   netsh firewall), dry-run capable.
@@ -171,7 +176,7 @@ DetectiveLuffy-main/
                                KMeans, feature importance
     integrity.py              - SHA-256 hash chain compute +
                                verify
-    detective.py               - Groq/Llama "Luffy" persona: case
+    detective.py               - Ollama/Groq "Luffy" persona: case
                                files, chat, event analysis
     sanitizer.py               - PII redaction + prompt-injection
                                hardening for AI calls
@@ -223,9 +228,14 @@ or syslog auth.log/secure), and macOS.
   Linux/macOS) -- needed to read protected logs and to actually
   execute account/firewall block actions. Without it the app runs
   in a forced dry-run/degraded mode.
-- A free Groq API key (https://console.groq.com/) for the Luffy
-  chat persona (optional -- the rest of the platform works
-  without it, but chat/case-file endpoints will fail)
+- For the Luffy chat persona (optional -- the rest of the platform
+  works without it, but chat/case-file endpoints will not answer):
+    * Ollama (https://ollama.com/), the default, runs the AI on your
+      own computer. Pull a model, e.g. `ollama pull llama3.1`. An 8B
+      model wants roughly 5-6 GB of free memory; on a smaller
+      machine use `ollama pull llama3.2:3b`.
+    * or a free Groq API key (https://console.groq.com/) if you
+      prefer the cloud (set LLM_PROVIDER=groq)
 
 Per-platform behaviour (log_collector.py / os_collectors.py /
 response_executor.py):
@@ -283,7 +293,11 @@ Frontend API URL: defaults to http://<current-host>:8000. Override
 with VITE_API_URL in frontend/.env.local if the backend runs
 elsewhere.
 
-Create a .env file inside backend/ (see section 6, Configuration):
+AI setup (see section 6, Configuration). With Ollama installed and a
+model pulled there is nothing else to do: it is the default, and the
+backend loads the model in the background on startup. To use Groq
+instead, create backend/.env with:
+  LLM_PROVIDER=groq
   GROQ_API_KEY=your_groq_api_key_here
 
 --- Frontend Setup ---
@@ -299,11 +313,24 @@ eslint 9 for tooling.
 6. CONFIGURATION
 ================================================================
 
-GROQ_API_KEY
+LLM_PROVIDER
   Where: backend/.env
-  Default: none
-  Notes: Required for /chat, /casefile, /analyze-event. Loaded
-  via python-dotenv.
+  Default: ollama
+  Notes: "ollama" (local, no key) or "groq" (cloud).
+
+OLLAMA_MODEL / OLLAMA_HOST / OLLAMA_NUM_CTX / OLLAMA_MAX_TEMP / OLLAMA_TIMEOUT
+  Where: backend/.env
+  Default: llama3.1:latest / http://127.0.0.1:11434 / 4096 / 0.55 / 180
+  Notes: Which local model answers, where Ollama listens, the context
+  size (lower it if memory is tight), the highest creativity allowed
+  (small models invent facts when it is high) and how many seconds to
+  wait for an answer.
+
+GROQ_API_KEY / GROQ_MODEL
+  Where: backend/.env
+  Default: none / openai/gpt-oss-20b
+  Notes: Only used when LLM_PROVIDER=groq. Needed for /chat,
+  /casefile and /analyze-event in that mode. Loaded via python-dotenv.
 
 DB_PATH
   Where: backend/database.py
@@ -412,14 +439,14 @@ integrity.py
   event log tamper-evidence / chain-of-custody guarantees.
 
 detective.py
-  Talks to the Groq API to power "Luffy" -- generates narrative
+  Talks to the configured AI (Ollama by default, or the Groq API) to power "Luffy" -- generates narrative
   case files, answers chat questions (with history), and analyzes
   single events, always through sanitized data with an
   injection-guarded prompt.
 
 sanitizer.py
   Redacts/pseudonymizes PII (IPs, usernames, hostnames,
-  credentials) before any data reaches the third-party Groq API,
+  credentials) before any data reaches the AI (and the third-party Groq API in cloud mode),
   and hardens data blocks against prompt injection.
 
 response_executor.py
@@ -519,18 +546,32 @@ POST /demo/clear                Remove all injected demo events.
 10. FRONTEND TABS
 ================================================================
 
-The React app (App.jsx) is organized into seven tabs plus an
-always-present Luffy overlay:
+The React app (App.jsx) is organized into eight tabs plus an
+always-present Luffy overlay. The look is a Balatro-style card table
+(pixel sprites, playing cards, a backdrop picture); every chart and
+event is a card.
+
+HOME -- Home.jsx
+  The case at a glance: a 3D stack of threat layers, Luffy's briefing,
+  the worst cards, and a rail of "how it works" cards. Click a card
+  to lift it with a short summary.
 
 EVENTS (dashboard) -- inline in App.jsx
   Primary event table/dashboard, filterable by threat tier.
 
-GRAPHS -- GraphDashboard
-  Charted breakdowns of events by tier/time (via recharts).
+GRAPHS -- GraphsPage.jsx
+  A deck of chart cards (drag or flick the top card, click it to open
+  the chart in a window): contamination and threat levels (a 3D terrain),
+  anomalies on a card table (the HIGH and CRITICAL events the backend
+  flagged, against a baseline of typical activity), a game board of
+  events by log source and time, behaviour patterns, and the most
+  common events in plain words. A time brush and threat-level toggles
+  filter every chart.
 
 ENTITIES -- EntityGraph.jsx
-  Force-directed graph (via d3) correlating events by
-  entity/account/host.
+  Force-directed graph (via d3) correlating events by entity/account/
+  host. Every entity is a floating deck of cards, event types are
+  single cards, and dashed regions group the decks by behaviour pattern.
 
 ML SCORES -- Featureimportance.jsx
   Visualizes which features drove each event's anomaly score.
@@ -542,10 +583,15 @@ REPLAY -- ReplayTimeline.jsx
   Step-through chronological replay of an incident with forensic
   annotations.
 
-ASK LUFFY -- LuffyTab (in App.jsx)
+ASK LUFFY -- ChatPage.jsx
   Chat interface with the AI detective; supports natural-language
   app control (e.g., "run a scan", "go to the replay tab", "block
-  this IP").
+  this IP") and a learning mode: ask how a tool or concept works
+  (nmap, Event Viewer, firewalls, hashes...) and he teaches it in
+  his own voice, with exact commands shown as code.
+
+A jukebox (YouTube player) and a Demo data switch sit in the right
+rail on every tab.
 
 The mascot is a pixel-art Luffy drawn in code (luffySprite.js holds
 the sprite grid, PixelLuffy.jsx renders it as SVG, so there are no
@@ -684,14 +730,18 @@ or altering firewall state.
 14. AI DETECTIVE (LUFFY) AND DATA PRIVACY
 ================================================================
 
-The "Luffy" persona is powered by Groq's hosted LLM API (groq
-Python SDK, model configured in detective.py) and is used for:
+The "Luffy" persona is powered by an LLM chosen in backend/.env:
+Ollama (default, runs on your computer, called over HTTP) or Groq's
+hosted API. It is used for:
   - Narrative case file generation (/casefile)
   - Free-form chat with app-control commands (/chat)
   - Per-event analysis in plain language (/analyze-event)
+  - Teaching general software and cybersecurity concepts and tools
+    (defence and authorised testing only; attacks on other people's
+    systems are refused in character)
 
-Before any event data is sent to Groq, sanitizer.py performs two
-jobs:
+Before any event data is sent to the AI, sanitizer.py performs two
+jobs (with a local Ollama model nothing leaves your computer at all):
 
 1. PII sanitization -- IP addresses are redacted, usernames are
    pseudonymized, and other sensitive fields are stripped from
@@ -724,6 +774,13 @@ rohan.admin / 192.168.1.47):
      (7045 / 4698)
   5. Anti-forensics -- Security event log cleared (1102)
 
+Separately, a Demo data switch (a pull cord in the right rail of the
+main screen) swaps every tab over to fabricated data that is spread
+evenly across all four threat levels and every behaviour pattern. It
+is answered entirely inside the frontend (fakeData.js, dataMode.js):
+nothing touches the backend or the database, and block actions are
+harmless. Luffy's chat and event explanations still use the real AI.
+
 POST /demo/inject checks for existing demo event hashes first, so
 calling it repeatedly never duplicates data; POST /demo/clear
 removes all injected demo events cleanly (detected via a
@@ -733,19 +790,27 @@ JSON-parsed "demo": true flag, not a fragile string match).
 16. PDF REPORTS
 ================================================================
 
-report_generator.py uses ReportLab to build two report types from
-the same live database:
+report_generator.py uses ReportLab to build one combined report:
+a management summary up front (headline numbers, summary, recommended
+actions), then the technical detail (behaviour patterns, entities,
+timeline and attack phases, the highest-scoring events in plain words,
+why the model flagged them, the AI case file, and the chain of custody).
+Tables fit the page and long text wraps inside its column.
 
-  - Technical Report (GET /report/pdf) -- full multi-page
-    forensic detail intended for analysts, including tables,
-    per-tier color coding, and page numbers.
+Reports can be scoped to one circumstance. In the app: Case Info ->
+Reports, then filter by threat level, behaviour pattern, one entity
+and/or a date range; a live count shows how many events match. From
+there read it as a pixel-style book (CaseBook.jsx, with turnable
+pages) or download the PDF. The same filters work as query parameters
+(scope.py):
 
-  - Management Report (GET /report/management) -- condensed
-    executive summary intended for non-technical stakeholders.
+  GET /report/pdf?tier=4&cluster=Brute%20Force%20Pattern&entity=DCOM
+      &start=2026-10-20&end=2026-10-23
+  GET /report/management           (the same combined report)
+  GET /events?tier=...&cluster=...&entity=...&start=...&end=...&limit=...
 
-Both are streamed back as downloadable PDFs (Content-Disposition:
-attachment) named with a timestamp, e.g.
-forensic_technical_20260825_143000.pdf.
+With Demo data on, the app posts the demo events to POST /report/pdf
+so the backend can typeset the PDF without storing anything.
 
 ================================================================
 17. DATABASE SCHEMA
@@ -785,7 +850,15 @@ Cause/fix: pywin32 isn't installed, you're not on Windows, or the
 app isn't running as Administrator. Real-time collection needs
 elevated Windows Event Log access.
 
-Symptom: Luffy says "My AI service rejected the API key" (or the key is missing)
+Symptom: Luffy says "Ollama is not running", "does not have the model" or
+"ran out of memory"
+Cause/fix: Start Ollama (open the app or run `ollama serve`), pull the
+model (`ollama pull llama3.1`), and free some memory (close browser
+tabs) or set a smaller OLLAMA_MODEL such as llama3.2:3b in backend/.env.
+The first answer after a long pause can take up to a minute while the
+model loads; the backend preloads it on startup.
+
+Symptom: Luffy says "My AI service rejected the API key" (Groq mode)
 Cause/fix: Put a valid GROQ_API_KEY (starts with gsk_) in backend/.env
 and restart the backend. Until then the chat still handles basic
 commands locally: run a scan, show critical, replay the attack, who
@@ -837,7 +910,6 @@ architecture:
     installs
   - Multi-user auth and role-based access to active-response
     actions
-  - Pluggable LLM backend (currently hardwired to Groq)
   - Linux/macOS-native log source support (currently Windows
     Event Log only)
   - Export of the integrity chain for independent third-party

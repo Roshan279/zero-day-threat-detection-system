@@ -5,6 +5,22 @@ import { Btn } from "./px/ui"
 import { parseCitations } from "./sanitize"
 
 // Turns [1] style markers into small clickable citations
+// Luffy's teaching answers have line breaks, numbered steps, `inline code` and ``` blocks: show them as written
+function RichText({ text, onCitationClick }) {
+  const blocks = String(text).split(/```/)
+  return blocks.map((block, bi) => {
+    if (bi % 2) {
+      const code = block.replace(/^[a-zA-Z0-9]*\n/, "").replace(/\n$/, "")
+      return <pre key={bi} style={{ margin: "6px 0", padding: "6px 10px", background: "#243234", color: "#dcdcdc", border: "3px solid var(--ink)", borderRadius: 6, fontSize: 16, lineHeight: 1.3, whiteSpace: "pre-wrap", wordBreak: "break-all", fontFamily: "Courier New, monospace" }}>{code}</pre>
+    }
+    return block.split(/(`[^`\n]+`)/).map((part, pi) => (
+      part.length > 2 && part.startsWith("`") && part.endsWith("`")
+        ? <code key={`${bi}-${pi}`} style={{ background: "#243234", color: "#fdcf51", padding: "0 5px", border: "2px solid var(--ink)", borderRadius: 4, fontSize: 17, fontFamily: "Courier New, monospace", wordBreak: "break-all" }}>{part.slice(1, -1)}</code>
+        : <CitedText key={`${bi}-${pi}`} text={part} onCitationClick={onCitationClick} />
+    ))
+  })
+}
+
 function CitedText({ text, onCitationClick }) {
   if (!text) return null
   const { cleanText, citations } = parseCitations(text)
@@ -58,11 +74,11 @@ export default function ChatPage({ history, input, setInput, send, loading, mood
               <div className="pz-panel" style={{ background: "var(--blue)", padding: "8px 14px", fontSize: 20, textShadow: "0 2px 0 rgba(0,0,0,.4)", fontWeight: 600 }}>{msg.content}</div>
             </div>
           ) : (
-            <div key={i} className="pz-bounce-in" style={{ alignSelf: "flex-start", maxWidth: "78%", display: "flex", gap: 10, alignItems: "flex-end" }}>
+            <div key={i} className="pz-bounce-in" style={{ alignSelf: "flex-start", maxWidth: "86%", display: "flex", gap: 10, alignItems: "flex-end" }}>
               <LuffyAvatar mood={mood} size={46} color={color} />
               <div className="pz-panel paper" style={{ padding: "10px 14px", fontSize: 20, lineHeight: 1.25 }}>
                 <div style={{ fontSize: 14, letterSpacing: ".14em", fontWeight: 700, color: "#6b7b78", marginBottom: 2 }}>LUFFY</div>
-                <CitedText text={msg.content} onCitationClick={() => {}} />
+                <div style={{ whiteSpace: "pre-wrap" }}><RichText text={msg.content} onCitationClick={() => {}} /></div>
               </div>
             </div>
           )

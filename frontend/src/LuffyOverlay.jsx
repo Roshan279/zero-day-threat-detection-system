@@ -4,13 +4,13 @@ import PxIcon from "./px/PxIcon"
 import { Btn } from "./px/ui"
 
 const LUFFY_LINES = {
-  idle:     ["Nothing feels wrong. I trust that.","The system is calm. I'm ready either way.","Boring is good. Boring means safe.","I don't need to understand everything to protect it."],
-  alert:    ["Something moved that shouldn't have. I can tell.","Someone here is not who they say they are.","I'm paying attention now. Real attention."],
-  thinking: ["Hmm. Give me a second.","This is the part where I figure it out. Usually.","Something about this doesn't add up. Let me look closer."],
-  happy:    ["Everything is safe! That's all that matters.","All clear! I'll take it.","SHISHISHI!! Nothing bad happening!"],
-  angry:    ["SOMEONE IS ATTACKING THIS SYSTEM. I WON'T ALLOW IT.","THIS IS NOT OKAY. FIX THIS. NOW.","Nobody messes with what's mine."],
+  idle:     ["All quiet. Boring is good, but I'm ready for a fight.","Nothing feels wrong. I trust that.","Hey nakama, anything we should go look at?","I'm hungry. But I'm still watching."],
+  alert:    ["Something moved that shouldn't have. I can tell.","That one's a bad guy. I just know.","I'm paying attention now. Real attention."],
+  thinking: ["Hmm. Give me a second.","Something doesn't add up. I'm gonna find out what.","Okay, okay, let me look closer."],
+  happy:    ["All clear! Let's go find some meat!","Nobody's messing with us today. Shishishi!","Everything's safe! That's what matters."],
+  angry:    ["Someone's attacking us. I won't let them.","Nobody touches what's mine.","Stay behind me. I'm gonna take care of this."],
   sleepy:   ["Zzz... I can't see the logs right now.","I can't reach the backend. Wake it up for me?"],
-  goofy:    ["I solved it!! ...What did I solve exactly?","SHISHISHI! I had no plan and it still worked!","I don't know what happened but the bad stuff is gone!"],
+  goofy:    ["I solved it!! ...What did I solve exactly?","Shishishi! I had no plan and it still worked!","I don't know what happened but the bad stuff is gone!"],
 }
 
 // color: the tag color used on the speech bubble and the status tag
